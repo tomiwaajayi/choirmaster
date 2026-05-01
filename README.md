@@ -12,7 +12,7 @@ The agents do the work. ChoirMaster owns the loop, the gates, the worktrees, and
 
 ## Status
 
-Pre-alpha. `choirmaster@0.3.0` is published and dogfooded by this repo. APIs will still change.
+Pre-alpha. The `0.3.x` line is published and dogfooded by this repo. APIs will still change.
 
 ## Who it's for
 
