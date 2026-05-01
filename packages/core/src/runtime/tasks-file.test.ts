@@ -107,10 +107,59 @@ describe('validateTasksFile', () => {
 
   it('flags duplicate worktree paths', () => {
     const errors = bad(validateTasksFile([
-      { ...validTask, id: 'TASK-A', worktree: '.choirmaster/wt/shared' },
-      { ...validTask, id: 'TASK-B', worktree: '.choirmaster/wt/shared' },
+      { ...validTask, id: 'TASK-A', branch: 'task/a', worktree: '.choirmaster/wt/shared' },
+      { ...validTask, id: 'TASK-B', branch: 'task/b', worktree: '.choirmaster/wt/shared' },
     ]))
     expect(errors.some((e) => e.includes('duplicate worktree'))).toBe(true)
+  })
+
+  it('flags duplicate branch values', () => {
+    // Two tasks pointing at the same branch would later collide in
+    // `git worktree add -b` mid-run; reject up-front.
+    const errors = bad(validateTasksFile([
+      { ...validTask, id: 'TASK-A', branch: 'task/shared', worktree: '.choirmaster/wt/a' },
+      { ...validTask, id: 'TASK-B', branch: 'task/shared', worktree: '.choirmaster/wt/b' },
+    ]))
+    expect(errors.some((e) => e.includes('duplicate branch') && e.includes('task/shared'))).toBe(true)
+  })
+
+  it('rejects an absolute worktree path', () => {
+    const errors = bad(validateTasksFile([
+      { ...validTask, worktree: '/tmp/escape' },
+    ]))
+    expect(errors.some((e) => e.includes('worktree') && e.includes('relative'))).toBe(true)
+  })
+
+  it('rejects a worktree path that traverses above the project root', () => {
+    const errors = bad(validateTasksFile([
+      { ...validTask, worktree: '../outside' },
+    ]))
+    expect(errors.some((e) => e.includes('worktree') && e.includes('inside the project root'))).toBe(true)
+  })
+
+  it('rejects a worktree path that resolves above the project root after normalization', () => {
+    // `.choirmaster/wt/../../../escape` collapses to `../../escape` after
+    // posix normalization. Catch the post-normalization escape, not just
+    // the literal leading `../`.
+    const errors = bad(validateTasksFile([
+      { ...validTask, worktree: '.choirmaster/wt/../../../escape' },
+    ]))
+    expect(errors.some((e) => e.includes('worktree') && e.includes('inside the project root'))).toBe(true)
+  })
+
+  it('rejects a Windows drive-rooted worktree path', () => {
+    const errors = bad(validateTasksFile([
+      { ...validTask, worktree: 'C:/escape' },
+    ]))
+    expect(errors.some((e) => e.includes('worktree') && e.includes('relative'))).toBe(true)
+  })
+
+  it('accepts a worktree path with safe `..` segments that stay inside', () => {
+    // `a/../b` collapses to `b` - still inside the project. Allowed.
+    const result = ok(validateTasksFile([
+      { ...validTask, worktree: 'a/../b' },
+    ]))
+    expect(result.tasks).toHaveLength(1)
   })
 
   it('flags depends_on referencing an unknown task', () => {

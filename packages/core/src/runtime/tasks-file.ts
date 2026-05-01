@@ -29,6 +29,8 @@
  * (depends_on before dependents) so the CLI can iterate it directly.
  */
 
+import { posix as posixPath } from 'node:path'
+
 import type { GateConfig, Task } from '../types.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -57,6 +59,7 @@ export function validateTasksFile(parsed: unknown): TasksFileValidationResult {
   const tasks: Task[] = []
   const idIndex = new Map<string, number>()
   const worktreeIndex = new Map<string, number>()
+  const branchIndex = new Map<string, number>()
 
   for (let i = 0; i < rawTasks.length; i++) {
     const path = `tasks[${i}]`
@@ -74,9 +77,19 @@ export function validateTasksFile(parsed: unknown): TasksFileValidationResult {
       errors.push(`${path}: duplicate worktree path '${t.worktree}' (already used by tasks[${wtDup}])`)
       continue
     }
+    // Two tasks pointing at the same branch would collide in
+    // `git worktree add -b`: the second invocation refuses because the
+    // branch already exists. Catch it here so the failure is reported
+    // up-front rather than mid-run on the second task's sandbox.setup.
+    const brDup = branchIndex.get(t.branch)
+    if (brDup !== undefined) {
+      errors.push(`${path}: duplicate branch '${t.branch}' (already used by tasks[${brDup}])`)
+      continue
+    }
 
     idIndex.set(t.id, i)
     worktreeIndex.set(t.worktree, i)
+    branchIndex.set(t.branch, i)
     tasks.push(t)
   }
 
@@ -126,7 +139,7 @@ function parseTask(raw: unknown, path: string, errors: string[]): Task | null {
   const id = requireNonEmptyString(raw, 'id', path, errors)
   const title = requireNonEmptyString(raw, 'title', path, errors)
   const branch = requireNonEmptyString(raw, 'branch', path, errors)
-  const worktree = requireNonEmptyString(raw, 'worktree', path, errors)
+  const worktree = requireSafeRelativePath(raw, 'worktree', path, errors)
 
   const allowed_paths = requireStringArray(raw, 'allowed_paths', path, errors, { allowEmpty: false })
   const forbidden_paths = optionalStringArray(raw, 'forbidden_paths', path, errors) ?? []
@@ -219,6 +232,49 @@ function requireNonEmptyString(
   const v = raw[key]
   if (typeof v !== 'string' || v.trim() === '') {
     errors.push(`${path}.${key} must be a non-empty string`)
+    return null
+  }
+  return v
+}
+
+/**
+ * Validate a path field that the runtime resolves under the project root
+ * (e.g. `task.worktree`, which becomes `join(projectRoot, value)` inside
+ * the worktree sandbox). The check refuses anything that could escape:
+ * absolute paths, Windows drive letters, and any sequence that normalizes
+ * to start with `..` (e.g. `../foo` or `a/../../bar`).
+ *
+ * Without this check a malformed or generated tasks file could direct the
+ * agent's worktree at arbitrary host paths, sidestepping every later
+ * scope and gate guardrail because they all operate on the worktree
+ * the user picked.
+ */
+function requireSafeRelativePath(
+  raw: Record<string, unknown>,
+  key: string,
+  path: string,
+  errors: string[],
+): string | null {
+  const v = raw[key]
+  if (typeof v !== 'string' || v.trim() === '') {
+    errors.push(`${path}.${key} must be a non-empty string`)
+    return null
+  }
+  // Normalize separators so backslashed paths get the same scrutiny on
+  // POSIX hosts, then run the path through posix.normalize so segments
+  // like `a/../b` collapse before the prefix check.
+  const unified = v.replace(/\\/g, '/')
+  if (unified.startsWith('/')) {
+    errors.push(`${path}.${key} must be a relative path (got absolute '${v}')`)
+    return null
+  }
+  if (/^[A-Za-z]:\//.test(unified)) {
+    errors.push(`${path}.${key} must be a relative path (got drive-rooted '${v}')`)
+    return null
+  }
+  const normalized = posixPath.normalize(unified)
+  if (normalized === '..' || normalized.startsWith('../')) {
+    errors.push(`${path}.${key} must stay inside the project root (got '${v}', resolves above project)`)
     return null
   }
   return v
