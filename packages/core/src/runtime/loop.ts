@@ -425,12 +425,12 @@ export async function runReviewerLoop(
   // Resume from the next un-completed iter. `completed_review_iterations`
   // only advances at terminal points (cycle done); an interrupt mid-iter
   // leaves it where it was so the same iter is redone, not skipped.
+  // When this equals max, the for loop is naturally skipped and we fall
+  // through to final-verify - which itself is idempotent on resume (a
+  // capacity pause during the final-verify call leaves the same state,
+  // and re-running it is what we want).
   const previousCompletedIters = task.completed_review_iterations ?? 0
   const startIter = previousCompletedIters + 1
-  if (startIter > maxReviewIterations) {
-    task.blocked_reason = `Max review iterations (${maxReviewIterations}) already exhausted.`
-    return 'blocked'
-  }
 
   let lastReviewIssues = previousLastReviewIssues
   let runningSummary = implementerSummary
@@ -551,12 +551,19 @@ export async function runReviewerLoop(
   // fix passed scope + gates. Run one extra reviewer call to confirm READY
   // before declaring blocked. Catches the case where the last review iter
   // flagged a trivial issue the implementer already addressed.
+  //
+  // Resume safety: if a previous run paused or was killed during final-
+  // verify, `completed_review_iterations` already equals max (set when
+  // the last regular iter terminated), so this function re-enters here
+  // naturally on resume and re-runs the final-verify call. The pass is
+  // a single read-only reviewer turn; running it twice is idempotent.
   logger.block('FINAL VERIFY', `Reviewer iterations exhausted; running one final verification pass.`)
   const verifyRun = await invokeReviewer(ctx, task, cwd, runningSummary, maxReviewIterations + 1, logger, 'reviewer final-verify')
   if (verifyRun.capacityHit) {
     pauseForCapacity(ctx, state, task, logger, 'reviewer', verifyRun.capacitySignal ?? 'capacity hit', 'final-verify')
     return 'paused'
   }
+
   const finalReviewResult = readReview(cwd, task.id)
   if (!finalReviewResult.data) {
     const why = finalReviewResult.reason ?? 'no review file written'

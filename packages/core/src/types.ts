@@ -83,7 +83,10 @@ export interface Task {
    * Differs from `review_iterations` (which counts iterations *started*)
    * when an iteration is interrupted mid-call. Resume uses
    * `completed_review_iterations + 1` so a kill during the final allowed
-   * iter doesn't immediately exhaust the cap on resume.
+   * iter doesn't immediately exhaust the cap on resume. When this equals
+   * `max_review_iterations`, the regular loop has finished and final-verify
+   * is the only remaining step; resume re-enters final-verify until it
+   * produces a terminal verdict.
    */
   completed_review_iterations?: number
   /**
