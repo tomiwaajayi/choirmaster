@@ -8,7 +8,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { git } from '../runtime/git.js'
+import { currentBranch, git } from '../runtime/git.js'
 import type { Sandbox, SandboxHandle, SandboxSetupOptions, Task } from '../types.js'
 
 export interface WorktreeSandboxOptions {
@@ -38,6 +38,19 @@ export function worktreeSandbox(factoryOptions: WorktreeSandboxOptions = {}): Sa
           throw new Error(
             `Worktree already exists at ${task.worktree}. Pass --reuse-worktree, `
             + `or remove it with \`git worktree remove ${task.worktree}\`.`,
+          )
+        }
+        // Branch identity check: even with allowReuse on, we refuse to use
+        // a directory that isn't this task's worktree. A stale dir from a
+        // prior run, an unrelated worktree, or a non-git dir would
+        // otherwise be accepted as the agent cwd and committed/merged as
+        // if it belonged to this task.
+        const branchOnDisk = currentBranch(worktreePath)
+        if (branchOnDisk !== task.branch) {
+          throw new Error(
+            `Existing worktree at ${task.worktree} is on branch '${branchOnDisk ?? '(detached or not a git worktree)'}', `
+            + `expected '${task.branch}'. Refusing to reuse. Remove it with `
+            + `\`git worktree remove ${task.worktree}\` and let setup create a fresh one.`,
           )
         }
         return { cwd: worktreePath, worktreePath }

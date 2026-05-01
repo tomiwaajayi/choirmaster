@@ -78,13 +78,35 @@ export async function main(argv: string[]): Promise<number> {
 
   if (command === 'run') {
     const { runCommand } = await import('./commands/run.js')
-    const tasksFile = args[1]
-    if (!tasksFile) {
-      process.stderr.write('Usage: choirmaster run <tasks.json> [--continue-on-blocked] [--reuse-worktree] [--no-auto-merge]\n')
+    const argList = args.slice(1)
+
+    // --resume <run-id> takes precedence over a positional tasks file.
+    const resumeIdx = argList.indexOf('--resume')
+    let resumeRunId: string | undefined
+    const consumed = new Set<number>()
+    if (resumeIdx !== -1) {
+      resumeRunId = argList[resumeIdx + 1]
+      if (!resumeRunId) {
+        process.stderr.write('--resume requires a run id.\n')
+        return 64
+      }
+      consumed.add(resumeIdx)
+      consumed.add(resumeIdx + 1)
+    }
+
+    const tasksFile = argList.find((a, i) => !consumed.has(i) && !a.startsWith('--'))
+    if (!resumeRunId && !tasksFile) {
+      process.stderr.write(
+        'Usage:\n'
+        + '  choirmaster run <tasks.json> [--continue-on-blocked] [--reuse-worktree] [--no-auto-merge]\n'
+        + '  choirmaster run --resume <run-id>\n',
+      )
       return 64
     }
+
     return runCommand({
       tasksFile,
+      resumeRunId,
       continueOnBlocked: args.includes('--continue-on-blocked'),
       reuseWorktree: args.includes('--reuse-worktree'),
       skipAutoMerge: args.includes('--no-auto-merge'),

@@ -1,22 +1,29 @@
 /**
- * `choirmaster run <tasks.json>`
+ * `choirmaster run <tasks.json>` or `choirmaster run --resume <run-id>`
  *
- * Loads the project manifest and a tasks.json file, sets up a per-run
- * directory, and drives every pending task through the orchestration
- * loop. After the run, prints a per-task breakdown of statuses.
+ * Fresh mode: loads tasks.json, creates a new per-run directory, drives
+ * every pending task through the orchestration loop.
+ *
+ * Resume mode: loads an existing run's state.json and continues from
+ * wherever it paused (capacity, blocked-but-still-fixable, killed
+ * mid-run). The same orchestration loop handles both because runTask is
+ * already phase-aware - the CLI just supplies the state instead of
+ * minting it from a tasks file.
  */
 
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import type { RunState, Task } from '@choirmaster/core'
-import { runTask, saveState } from '@choirmaster/core'
+import { loadState, runTask, saveState } from '@choirmaster/core'
 
 import { loadManifest } from '../manifest.js'
 
 export interface RunCommandArgs {
-  /** Path to tasks.json (relative or absolute). */
-  tasksFile: string
+  /** Path to tasks.json (relative or absolute). Required unless `resumeRunId`. */
+  tasksFile?: string
+  /** Existing run id to resume. When set, tasksFile is ignored. */
+  resumeRunId?: string
   /** Working directory; defaults to process.cwd(). */
   cwd?: string
   /** Halt on the first task that ends `blocked`. Default: stop on first blocked. */
@@ -29,36 +36,6 @@ export interface RunCommandArgs {
 
 export async function runCommand(args: RunCommandArgs): Promise<number> {
   const projectRoot = resolve(args.cwd ?? process.cwd())
-  const tasksPath = resolve(projectRoot, args.tasksFile)
-
-  if (!existsSync(tasksPath)) {
-    process.stderr.write(`tasks file not found: ${tasksPath}\n`)
-    return 1
-  }
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(readFileSync(tasksPath, 'utf8'))
-  }
-  catch (err) {
-    process.stderr.write(`tasks file is not valid JSON: ${(err as Error).message}\n`)
-    return 1
-  }
-
-  const rawTasks = extractTasks(parsed)
-  if (rawTasks.length === 0) {
-    process.stderr.write('tasks file contains no tasks.\n')
-    return 1
-  }
-
-  let tasks: Task[]
-  try {
-    tasks = topologicallySort(rawTasks)
-  }
-  catch (err) {
-    process.stderr.write(`${(err as Error).message}\n`)
-    return 1
-  }
 
   let config
   try {
@@ -69,26 +46,88 @@ export async function runCommand(args: RunCommandArgs): Promise<number> {
     return 1
   }
 
-  // Run id includes milliseconds + a 4-char random suffix so two runs in
-  // the same second don't collide (race-prone with short tasks).
-  const runId = makeRunId()
-  const runDir = resolve(projectRoot, '.choirmaster/runs', runId)
-  const logsDir = resolve(runDir, 'logs')
-  mkdirSync(logsDir, { recursive: true })
+  let runId: string
+  let runDir: string
+  let logsDir: string
+  let state: RunState
 
-  const state: RunState = {
-    id: runId,
-    plan_source: args.tasksFile,
-    started_at: new Date().toISOString(),
-    current_task: null,
-    tasks,
+  if (args.resumeRunId) {
+    runId = args.resumeRunId
+    runDir = resolve(projectRoot, '.choirmaster/runs', runId)
+    if (!existsSync(runDir)) {
+      process.stderr.write(`Run not found: .choirmaster/runs/${runId}\n`)
+      return 1
+    }
+    try {
+      state = loadState(runDir)
+    }
+    catch (err) {
+      process.stderr.write(`Failed to load run state: ${(err as Error).message}\n`)
+      return 1
+    }
+    logsDir = resolve(runDir, 'logs')
+    mkdirSync(logsDir, { recursive: true })
+
+    process.stdout.write(`\nChoirMaster resume ${runId}\n`)
+    process.stdout.write(`  ${state.tasks.length} task(s) in run, plan source: ${state.plan_source}\n`)
+    process.stdout.write(`  base branch: ${config.base}\n\n`)
   }
-  saveState(runDir, state)
+  else {
+    if (!args.tasksFile) {
+      process.stderr.write('Usage: choirmaster run <tasks.json> | --resume <run-id>\n')
+      return 1
+    }
+    const tasksPath = resolve(projectRoot, args.tasksFile)
+    if (!existsSync(tasksPath)) {
+      process.stderr.write(`tasks file not found: ${tasksPath}\n`)
+      return 1
+    }
 
-  process.stdout.write(`\nChoirMaster run ${runId}\n`)
-  process.stdout.write(`  ${tasks.length} task(s) loaded from ${args.tasksFile}\n`)
-  process.stdout.write(`  base branch: ${config.base}\n`)
-  process.stdout.write(`  state dir: .choirmaster/runs/${runId}\n\n`)
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(readFileSync(tasksPath, 'utf8'))
+    }
+    catch (err) {
+      process.stderr.write(`tasks file is not valid JSON: ${(err as Error).message}\n`)
+      return 1
+    }
+
+    const rawTasks = extractTasks(parsed)
+    if (rawTasks.length === 0) {
+      process.stderr.write('tasks file contains no tasks.\n')
+      return 1
+    }
+
+    let tasks: Task[]
+    try {
+      tasks = topologicallySort(rawTasks)
+    }
+    catch (err) {
+      process.stderr.write(`${(err as Error).message}\n`)
+      return 1
+    }
+
+    runId = makeRunId()
+    runDir = resolve(projectRoot, '.choirmaster/runs', runId)
+    logsDir = resolve(runDir, 'logs')
+    mkdirSync(logsDir, { recursive: true })
+
+    state = {
+      id: runId,
+      plan_source: args.tasksFile,
+      started_at: new Date().toISOString(),
+      current_task: null,
+      tasks,
+    }
+    saveState(runDir, state)
+
+    process.stdout.write(`\nChoirMaster run ${runId}\n`)
+    process.stdout.write(`  ${tasks.length} task(s) loaded from ${args.tasksFile}\n`)
+    process.stdout.write(`  base branch: ${config.base}\n`)
+    process.stdout.write(`  state dir: .choirmaster/runs/${runId}\n\n`)
+  }
+
+  const tasks = state.tasks
 
   const ctx = { projectRoot, runDir, logsDir, config }
 

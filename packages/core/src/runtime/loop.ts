@@ -325,12 +325,19 @@ export async function runReviewerLoop(
       continue
     }
     const review = reviewResult.data
-    if (review.verdict === 'READY') {
+    // Strict-mode invariant from the reviewer prompt: READY only when the
+    // issues array is empty. A contradictory verdict (READY with populated
+    // issues) is treated as BLOCKED so the issues get back to the
+    // implementer and the contract isn't silently violated.
+    if (review.verdict === 'READY' && review.issues.length === 0) {
       logger.block(`REVIEWER READY (iter ${iter})`, review.notes || 'No notes.')
       return 'ready'
     }
+    if (review.verdict === 'READY' && review.issues.length > 0) {
+      logger.line(`Reviewer iter ${iter} returned READY with ${review.issues.length} issue(s); strict mode treats this as BLOCKED.`)
+    }
 
-    // BLOCKED → feed issues to implementer fix
+    // BLOCKED (or contradictory READY) -> feed issues to implementer fix
     lastReviewIssues = review.issues
       .map((i, idx) => `  ${idx + 1}. [${i.severity}] ${i.axis} · ${i.file}${i.line ? `:${i.line}` : ''} - ${i.description}`)
       .join('\n')
@@ -417,9 +424,12 @@ export async function runReviewerLoop(
     return 'blocked'
   }
   const finalReview = finalReviewResult.data
-  if (finalReview.verdict === 'READY') {
+  if (finalReview.verdict === 'READY' && finalReview.issues.length === 0) {
     logger.block('FINAL VERIFY READY', finalReview.notes || 'No notes.')
     return 'ready'
+  }
+  if (finalReview.verdict === 'READY' && finalReview.issues.length > 0) {
+    logger.line(`Final-verify returned READY with ${finalReview.issues.length} issue(s); strict mode treats this as BLOCKED.`)
   }
   task.blocked_reason = `Max review iterations (${task.max_review_iterations}) exceeded; final-verify still BLOCKED.`
   logger.block('FINAL VERIFY BLOCKED', finalReview.issues.map((i) => `  - [${i.severity}] ${i.description}`).join('\n'))
