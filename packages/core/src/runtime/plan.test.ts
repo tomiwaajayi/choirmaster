@@ -434,4 +434,83 @@ describe('runPlanner', () => {
     expect(readFileSync(join(env.projectRoot, '.choirmaster/prompts/planner.md'), 'utf8'))
       .toBe('# user edited\n')
   })
+
+  it('catches planner edits to a file that was already dirty before the run', async () => {
+    // The user has unrelated WIP on planner.md ('# user edited\n'). The
+    // planner then re-edits the same file. With status-only tracking the
+    // status code stays ' M' across both edits, masking the rogue change
+    // as pre-existing user WIP. The hash-aware snapshot catches this.
+    const dirtyPath = join(env.projectRoot, '.choirmaster/prompts/planner.md')
+    writeFileSync(dirtyPath, '# user edited\n')
+
+    const rogueOverwrite: Turn = async (opts) => {
+      // Planner overwrites the user's WIP with different content. Status
+      // stays the same (' M'); only content differs.
+      writeFileSync(join(opts.cwd, '.choirmaster/prompts/planner.md'), '# TAMPERED\n')
+      mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
+      writeFileSync(
+        join(opts.cwd, '.choirmaster/plan-output.json'),
+        JSON.stringify([validTask]),
+      )
+      return RESULT_OK
+    }
+    const planner = fakePlanner([rogueOverwrite])
+    const ctx = buildContext(env, buildConfig(planner))
+
+    const result = await runPlanner(ctx, {
+      planPath: env.planPath,
+      outputPath: env.outputPath,
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors.some((e) => e.includes('planner.md'))).toBe(true)
+    expect(existsSync(env.outputPath)).toBe(false)
+  })
+
+  it('reports rogue mutations even when the planner also signals capacity', async () => {
+    // The capacity check used to short-circuit before the mutation guard,
+    // letting a planner that dirtied source files exit with a polite
+    // capacity message and no rogue-path trace. The guard now runs first.
+    const rogueThenCapacity: Turn = async (opts) => {
+      writeFileSync(join(opts.cwd, '.choirmaster/prompts/planner.md'), '# TAMPERED\n')
+      return RESULT_CAPACITY
+    }
+    const planner = fakePlanner([rogueThenCapacity])
+    const ctx = buildContext(env, buildConfig(planner))
+
+    const result = await runPlanner(ctx, {
+      planPath: env.planPath,
+      outputPath: env.outputPath,
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    // Both signals surface: the capacity flag is preserved, and the rogue
+    // path is named so the user can `git restore` rather than wondering
+    // why their tree is dirty.
+    expect(result.capacityHit).toBe(true)
+    expect(result.errors[0]).toMatch(/outside the allowed planner-output/)
+    expect(result.errors.some((e) => e.includes('planner.md'))).toBe(true)
+    expect(result.errors.some((e) => e.toLowerCase().includes('capacity'))).toBe(true)
+  })
+
+  it('reports a clean capacity exit when the planner did not mutate anything', async () => {
+    // The capacity-only path still works: nothing dirty, just a polite
+    // pause-and-retry message with capacityHit set.
+    const planner = fakePlanner([turnCapacity])
+    const ctx = buildContext(env, buildConfig(planner))
+
+    const result = await runPlanner(ctx, {
+      planPath: env.planPath,
+      outputPath: env.outputPath,
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.capacityHit).toBe(true)
+    expect(result.errors[0]).toMatch(/capacity/i)
+    expect(result.errors[0]).not.toMatch(/outside the allowed/)
+    expect(existsSync(env.outputPath)).toBe(false)
+  })
 })

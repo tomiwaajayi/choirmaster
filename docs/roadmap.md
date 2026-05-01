@@ -93,12 +93,14 @@ Remaining work:
 - Add validation for `*.tasks.json` before a run starts.
 - Dogfood ChoirMaster on this repository with small documentation and CLI tasks.
 - Continue tightening blocked and resume messages as new failure modes appear.
+- Preflight + diagnostics layer: distinguish capacity, missing CLI auth, offline network, DNS/API failure, and true timeout. Today several of these collapse into generic "no output" or "timeout" behaviour, which is confusing when a user comes back to a paused run AFK. The runtime should classify each failure mode and surface the right remediation (re-auth, reconnect, reset, retry, wait).
 
 Success criteria:
 
 - Interrupted runs never skip required checks.
 - Scope violations cannot be committed silently.
 - A user can understand why a task blocked and what to do next.
+- Each failure exit names what to do next: re-authenticate, reconnect, wait for capacity, or reset.
 
 ## Phase 1: Daily Local Use
 
@@ -154,11 +156,26 @@ Capabilities:
 - "Too broad" rejection.
 - Conservative defaults for allowed paths and gates.
 
+### Plan-level branch policy
+
+Today branch policy is a per-task concern (`headOnly`, `perTaskMerge`, `perTaskBranch`). A plan needs its own layer above that, because the right rejoin shape depends on how tasks relate inside the plan, not just on a single task's preference.
+
+A plan should declare one of:
+
+- **Per-task**: each task merges directly into the base branch as it completes. Best when tasks are independent and the user is happy to ship each one as soon as it's green.
+- **Plan branch**: every task in the plan merges into a shared `plan/<name>` branch; that branch is what eventually merges (or opens a PR) against the base. Best when tasks share context and shouldn't land piecemeal.
+- **Task branches**: nothing auto-merges; each task lives on its own branch and the user merges manually. Best for review-heavy plans.
+
+Dependencies matter here: dependent tasks usually want a cumulative base (plan branch), so a later task forks from a tree that already includes its prerequisites. Independent tasks can stay separate longer without losing parallelism.
+
+The planner emits the plan-level policy at generation time; the user can override in the plan markdown or at run time.
+
 Success criteria:
 
 - A user can write intent in markdown and get a conservative, reviewable task plan.
 - A user can run a markdown plan without learning the task-file schema first.
 - The planner can be Claude, Codex, or any future adapter without changing the runtime.
+- The plan, not just individual tasks, decides how completed work rejoins the base branch.
 
 ## Phase 3: Everyday Workflow Commands
 

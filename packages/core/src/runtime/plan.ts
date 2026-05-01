@@ -11,6 +11,7 @@
  * so users can stop hand-authoring tasks.json files end-to-end.
  */
 
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -154,6 +155,28 @@ export async function runPlanner(
   )
   logger?.line(`${planner.name} (planner) finished in ${Date.now() - t0}ms; exit ${result.status}`)
 
+  // Project-root mutation guard. The only path the planner is allowed to
+  // touch is `.choirmaster/plan-output.json`. Anything else - source
+  // edits, gitignore tweaks, new untracked files - is treated as a
+  // contract violation. This check fires BEFORE the capacity early
+  // return: a planner that dirties source files and then signals
+  // capacity must still surface those rogue paths to the user, otherwise
+  // the project root is left dirty with no error trace.
+  const rogue = unauthorizedChanges(ctx.projectRoot, baselineStatus)
+  if (rogue.length > 0) {
+    const errors = [
+      'Planner mutated files outside the allowed planner-output path. Aborting before writing tasks.json.',
+      'Affected paths (review and `git restore` as needed):',
+      ...rogue.map((path) => `  - ${path}`),
+    ]
+    if (result.capacityHit) {
+      errors.push(
+        `Planner also reported capacity ("${result.capacitySignal ?? 'capacity hit'}"); the rogue edits above happened before the capacity signal.`,
+      )
+    }
+    return { ok: false, errors, capacityHit: result.capacityHit }
+  }
+
   if (result.capacityHit) {
     return {
       ok: false,
@@ -161,22 +184,6 @@ export async function runPlanner(
         `Planner hit capacity: "${result.capacitySignal ?? 'capacity hit'}". Re-run after the cap window resets.`,
       ],
       capacityHit: true,
-    }
-  }
-
-  // Project-root mutation guard. The only path the planner is allowed to
-  // touch is `.choirmaster/plan-output.json`. Anything else - source
-  // edits, gitignore tweaks, new untracked files - is treated as a
-  // contract violation and blocks the run.
-  const rogue = unauthorizedChanges(ctx.projectRoot, baselineStatus)
-  if (rogue.length > 0) {
-    return {
-      ok: false,
-      errors: [
-        'Planner mutated files outside the allowed planner-output path. Aborting before writing tasks.json.',
-        'Affected paths (review and `git restore` as needed):',
-        ...rogue.map((path) => `  - ${path}`),
-      ],
     }
   }
 
@@ -263,38 +270,66 @@ function buildPlannerUserPrompt(
   return lines.join('\n')
 }
 
+interface StatusEntry {
+  /** Two-character `git status --porcelain` code, e.g. " M", "??". */
+  status: string
+  /** SHA-256 of the on-disk content; empty string if the file isn't readable. */
+  hash: string
+}
+
 /**
- * Map of relative-path -> two-character porcelain status code. Used as
- * the before/after snapshot for the planner mutation guard.
+ * Snapshot every dirty path according to `git status --porcelain`, with
+ * both the status code AND a content hash. Status alone isn't enough -
+ * a file that was already ` M` can stay ` M` while the planner rewrites
+ * its content, so a status-only diff would treat the rogue edit as
+ * pre-existing user WIP. Hashing the content closes that gap.
  */
-function gitStatusSnapshot(cwd: string): Map<string, string> {
+function gitStatusSnapshot(cwd: string): Map<string, StatusEntry> {
   const r = git(['status', '--porcelain'], cwd)
-  const map = new Map<string, string>()
+  const map = new Map<string, StatusEntry>()
   if (r.status !== 0) return map
   for (const line of r.stdout.split('\n')) {
     if (!line) continue
     // Porcelain v1 format: two status chars, one space, then the path.
-    // Renames appear as `R  old -> new`; the path slice still gives a
-    // useful comparable string for our diff purposes.
+    // Renames appear as `R  old -> new`; we leave that string intact -
+    // hashing will fail (no such file), the entry still produces a
+    // distinct identity, and any rename through the planner shows up
+    // as a rogue change.
     const status = line.slice(0, 2)
     const path = line.slice(3)
-    map.set(path, status)
+    map.set(path, { status, hash: hashFileSafe(join(cwd, path)) })
   }
   return map
 }
 
+function hashFileSafe(absPath: string): string {
+  try {
+    const content = readFileSync(absPath)
+    return createHash('sha256').update(content).digest('hex')
+  }
+  catch {
+    // File may have been deleted (status "D"), be a directory, or be a
+    // rename-arrow path. An empty hash makes the entry compare distinct
+    // from any concrete file's hash, which is the right default.
+    return ''
+  }
+}
+
 /**
  * Compare the post-planner git status against the snapshot taken before
- * invocation and return any path whose status changed AND is not the
- * allowed planner-output file. This is what catches a planner that
- * decides (or was prompt-injected) to edit unrelated source files.
+ * invocation and return any path whose status OR content changed AND is
+ * not the allowed planner-output file. Catches: planner edited a clean
+ * file (status change), planner created a new file (new entry), and
+ * planner re-edited a file the user had already dirtied (same status,
+ * different content hash).
  */
-function unauthorizedChanges(cwd: string, before: Map<string, string>): string[] {
+function unauthorizedChanges(cwd: string, before: Map<string, StatusEntry>): string[] {
   const after = gitStatusSnapshot(cwd)
   const rogue: string[] = []
-  for (const [path, status] of after) {
+  for (const [path, entry] of after) {
     if (path === PLAN_OUTPUT_RELATIVE_PATH) continue
-    if (before.get(path) === status) continue
+    const prior = before.get(path)
+    if (prior && prior.status === entry.status && prior.hash === entry.hash) continue
     rogue.push(path)
   }
   return rogue
