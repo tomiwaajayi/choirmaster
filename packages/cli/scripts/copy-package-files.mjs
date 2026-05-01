@@ -16,5 +16,7 @@ const repoRoot = join(pkgDir, '..', '..')
 const files = ['README.md', 'LICENSE']
 for (const name of files) {
   copyFileSync(join(repoRoot, name), join(pkgDir, name))
-  console.log(`synced ${name}`)
+  // Write progress to stderr so `npm pack --silent` stdout stays clean for
+  // automation shaped like `TARBALL=$(npm pack --silent ...)`.
+  process.stderr.write(`synced ${name}\n`)
 }
