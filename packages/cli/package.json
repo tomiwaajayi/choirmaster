@@ -1,10 +1,16 @@
 {
-  "name": "@choirmaster/cli",
-  "version": "0.2.0",
-  "description": "ChoirMaster CLI - drive agentic-coding plans to committed work",
+  "name": "choirmaster",
+  "version": "0.3.0",
+  "description": "Local orchestrator for AI coding agents. Drive multi-step refactors with scoped tasks, isolated worktrees, deterministic gates, and resumable runs.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "bin": {
     "choirmaster": "dist/cli.js"
   },
@@ -14,7 +20,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsup",
     "postbuild": "node -e \"import('node:fs').then(m=>m.chmodSync('dist/cli.js',0o755))\"",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -29,8 +35,10 @@
     "ai",
     "coding-agent",
     "claude",
+    "claude-code",
     "codex",
     "orchestrator",
+    "agentic-coding",
     "automation"
   ],
   "license": "MIT",
@@ -38,8 +46,12 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@choirmaster/core": "workspace:*",
     "tsx": "^4.21.0"
+  },
+  "devDependencies": {
+    "@choirmaster/agent-claude": "workspace:*",
+    "@choirmaster/core": "workspace:*",
+    "tsup": "^8.5.1"
   },
   "publishConfig": {
     "access": "public"

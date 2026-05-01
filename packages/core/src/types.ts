@@ -202,11 +202,13 @@ export interface Agent {
 }
 
 /**
- * Engine factories live in their own packages (`@choirmaster/agent-claude`,
- * `@choirmaster/agent-codex`, etc.) and register themselves so the CLI can
- * resolve "claude:opus" or "codex:gpt-5.5" strings at runtime to a fresh
- * Agent. This is what lets `choirmaster set-model implementer claude:opus`
- * swap the implementer mid-run without editing the manifest.
+ * Engine factories register themselves so the CLI can resolve
+ * "claude:opus" or "codex:gpt-5.5" strings at runtime to a fresh Agent.
+ * This is what lets `choirmaster set-model implementer claude:opus`
+ * swap the implementer mid-run without editing the manifest. The
+ * default Claude factory ships bundled in `choirmaster`; future agents
+ * can publish themselves as separate packages that register additional
+ * factories.
  */
 export interface AgentFactory {
   /** Engine identifier matched against the prefix of "engine:model" strings. */

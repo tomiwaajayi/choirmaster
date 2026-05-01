@@ -1,7 +1,8 @@
 {
   "name": "@choirmaster/core",
-  "version": "0.2.0",
-  "description": "ChoirMaster runtime: state machine, gate runner, worktree management, agent + sandbox interfaces",
+  "version": "0.3.0",
+  "description": "ChoirMaster runtime (internal). Bundled into the published `choirmaster` package; do not depend on this directly.",
+  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -29,8 +30,5 @@
   "license": "MIT",
   "engines": {
     "node": ">=20"
-  },
-  "publishConfig": {
-    "access": "public"
   }
 }

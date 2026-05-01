@@ -46,8 +46,8 @@ export async function initCommand(args: InitCommandArgs = {}): Promise<number> {
   process.stdout.write(`  .choirmaster/plans/example.md\n`)
   process.stdout.write(`  .choirmaster/plans/example.tasks.json\n`)
   process.stdout.write(`\nNext steps:\n`)
-  process.stdout.write(`  1. Install the runtime packages in this project:\n`)
-  process.stdout.write(`     npm install --save-dev @choirmaster/core @choirmaster/agent-claude\n`)
+  process.stdout.write(`  1. Add choirmaster as a project dev dependency so manifest.ts resolves locally:\n`)
+  process.stdout.write(`     npm install --save-dev choirmaster\n`)
   process.stdout.write(`  2. Make sure the 'claude' CLI is installed and authenticated:\n`)
   process.stdout.write(`     claude --version\n`)
   process.stdout.write(`  3. Edit .choirmaster/manifest.ts:\n`)
@@ -76,15 +76,14 @@ function ensureGitignoreEntry(cwd: string): void {
 // Templates
 // ────────────────────────────────────────────────────────────────────────────
 
-const MANIFEST_TEMPLATE = `import { defineProject, perTaskMerge, worktreeSandbox } from '@choirmaster/core'
-import { claude } from '@choirmaster/agent-claude'
+const MANIFEST_TEMPLATE = `import { claude, defineProject, perTaskMerge, worktreeSandbox } from 'choirmaster'
 
 export default defineProject({
   // The branch tasks will fork from and (with perTaskMerge) merge back into.
   base: 'main',
 
-  // Claude is the default for every role. Mix models per role, or swap in
-  // a different engine entirely (e.g. @choirmaster/agent-codex once shipped).
+  // Claude is the default for every role. Mix models per role; future
+  // releases will export additional agent factories alongside \`claude\`.
   agents: {
     planner: claude('opus'),
     implementer: claude('sonnet'),

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * @choirmaster/cli bin entry. Compiled to dist/cli.js with shebang preserved
+ * `choirmaster` bin entry. Bundled to dist/cli.js with shebang preserved
  * and chmod +x applied via the postbuild script. The library main() lives
- * in ./index.ts so callers can also import { main } from '@choirmaster/cli'.
+ * in ./index.ts so callers can also import { main } from 'choirmaster'.
  */
 import { main } from './index.js'
 

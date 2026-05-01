@@ -1,14 +1,32 @@
 /**
- * @choirmaster/cli entry point.
+ * `choirmaster` library + CLI entry.
  *
- * Exposes `main(argv)` for the bin shim to call. Kept tiny on purpose:
- * subcommand routing lives here, the actual work belongs in @choirmaster/core
- * and provider packages.
+ * Two surfaces in one file:
+ *
+ *  1. Library re-exports: everything a user's `manifest.ts` needs to
+ *     declare a project (`defineProject`, branch policies, the worktree
+ *     sandbox, the Claude agent factory, types). Internal workspace
+ *     packages (`@choirmaster/core`, `@choirmaster/agent-claude`) are
+ *     bundled into this output by tsup, so users install one package
+ *     and import everything from `'choirmaster'`.
+ *
+ *  2. `main(argv)`: the CLI dispatch the bin shim calls. Subcommand
+ *     routing lives here; the actual work belongs in command modules.
  */
 
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { initCommand } from './commands/init.js'
+import { runCommand } from './commands/run.js'
+
+// ── Library re-exports ──────────────────────────────────────────────────────
+
+export * from '@choirmaster/core'
+export * from '@choirmaster/agent-claude'
+
+// ── CLI ─────────────────────────────────────────────────────────────────────
 
 interface Pkg {
   version: string
@@ -75,14 +93,12 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   if (command === 'init') {
-    const { initCommand } = await import('./commands/init.js')
     return initCommand({
       force: args.includes('--force') || args.includes('-f'),
     })
   }
 
   if (command === 'run') {
-    const { runCommand } = await import('./commands/run.js')
     const argList = args.slice(1)
 
     // --resume <run-id> takes precedence over a positional tasks file.

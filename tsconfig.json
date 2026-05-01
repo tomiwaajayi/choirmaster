@@ -2,7 +2,6 @@
   "files": [],
   "references": [
     { "path": "packages/core" },
-    { "path": "packages/agent-claude" },
-    { "path": "packages/cli" }
+    { "path": "packages/agent-claude" }
   ]
 }

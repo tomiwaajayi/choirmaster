@@ -43,7 +43,7 @@ const DEFAULT_OPTIONS: Required<Pick<ClaudeOptions, 'bin' | 'permissionMode'>> =
  * Construct a Claude Code agent for the given model.
  *
  * @example
- *   import { claude } from '@choirmaster/agent-claude'
+ *   import { claude } from 'choirmaster'
  *   const implementer = claude('sonnet', { effort: 'high' })
  */
 export function claude(model: string, options: ClaudeOptions = {}): Agent {

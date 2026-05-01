@@ -39,11 +39,13 @@ A planner agent (markdown plans / GitHub issues → tasks file) is on the roadma
 
 ## Architecture
 
-Three layers:
+Three layers, one published package:
 
-1. **Runtime** (`@choirmaster/core`) - state machine, retry caps, capacity pause/resume, worktree management, scope enforcement, gate runner, auto-merge with conflict abort. Project-agnostic.
-2. **Plugins** - pluggable `Agent` (Claude, Codex), `Sandbox` (worktree, Docker), `BranchPolicy`, gate factories.
+1. **Runtime** - state machine, retry caps, capacity pause/resume, worktree management, scope enforcement, gate runner, auto-merge with conflict abort. Project-agnostic.
+2. **Agent adapters** - pluggable `Agent` interface; the default Claude Code adapter ships in the box. Future agents (Codex, OpenCode, custom) implement the same interface.
 3. **Project config** - a typed `manifest.ts` per repo declares base branch, agent preferences, gates, and prompt files. Tasks files (`*.tasks.json`) live under `.choirmaster/plans/`. A planner agent that turns markdown plans or GitHub issues into tasks files is on the roadmap.
+
+The repo is a pnpm workspace with internal modules (`packages/core`, `packages/agent-claude`, `packages/cli`); `pnpm build` bundles them into the single published `choirmaster` package.
 
 ```
 .choirmaster/
@@ -57,13 +59,11 @@ Three layers:
 ## Install
 
 ```bash
-npm install -g @choirmaster/cli
-```
+# global CLI
+npm install -g choirmaster
 
-Then in your project:
-
-```bash
-npm install --save-dev @choirmaster/core @choirmaster/agent-claude
+# in your project, so manifest.ts can resolve `import { ... } from 'choirmaster'`
+npm install --save-dev choirmaster
 ```
 
 You also need the `claude` CLI installed and authenticated. ChoirMaster shells out to it.
@@ -100,12 +100,13 @@ choirmaster run .choirmaster/plans/example.tasks.json --no-auto-merge
 
 ## Packages
 
-| Package | Description |
-|---|---|
-| [`@choirmaster/core`](./packages/core) | Runtime substrate: types, state machine, gate runner, worktree management |
-| [`@choirmaster/cli`](./packages/cli) | The `choirmaster` command |
+One published package: [`choirmaster`](./packages/cli) - the CLI, the runtime, the Claude adapter, and the public types, all in one install.
 
-More to come: agent integrations (Claude, Codex), sandbox providers (Docker), GitHub issue integration, project templates.
+The monorepo keeps the layers separated internally so future agent adapters (Codex, OpenCode, custom engines) and sandbox providers (Docker) can grow without changing the install story:
+
+- [`packages/core`](./packages/core) - runtime substrate: types, state machine, gate runner, worktree management. Bundled into `choirmaster`; not published separately.
+- [`packages/agent-claude`](./packages/agent-claude) - Claude Code agent. Bundled into `choirmaster`; not published separately.
+- [`packages/cli`](./packages/cli) - the published `choirmaster` package. Bundles core + agent-claude + the CLI bin.
 
 ## Development
 
