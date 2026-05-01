@@ -14,7 +14,9 @@ The strongest version of ChoirMaster is boring in the best way. It should let an
 
 Today, ChoirMaster runs authored task files. A user writes a `*.tasks.json` file that describes each unit of work, including allowed paths, forbidden paths, gates, branch, worktree, and definition of done.
 
-The planner flow is on the roadmap. In the future, markdown plans and GitHub issues should compile into task files, but the executable artifact today is the task contract.
+The planner flow is the next release blocker. Markdown plans should compile into task files, and GitHub issues should later feed the same planner pipeline. The executable artifact remains the task contract, but the human authoring surface should become markdown.
+
+The runtime is already shaped around role-specific agents: planner, plan reviewer, implementer, and reviewer. Claude is the first bundled adapter, but the product goal is that any supported provider can fill any role.
 
 ## Non-Goals
 
@@ -32,7 +34,35 @@ The planner flow is on the roadmap. In the future, markdown plans and GitHub iss
 - Plans are contracts. Every task should have a clear scope, definition of done, and recovery story.
 - Task files stay human-editable. Generated task files should remain readable, reviewable, and safe to hand-edit.
 - Agents are replaceable. ChoirMaster owns orchestration; Claude, Codex, and other agents are workers behind interfaces.
+- Roles choose agents. Planner, plan reviewer, implementer, and reviewer are independent slots; each slot should be able to use a different provider, model, and effort level.
+- Provider details stay behind adapters. Model names, permission flags, streaming protocols, capacity signals, and tool formats belong in the adapter, not the runtime.
 - Small teams first. Optimize for solo developers, indie hackers, and small teams before enterprise ceremony.
+
+## Agent Choice Goal
+
+ChoirMaster should make mixed-agent workflows normal, not special-case behavior.
+
+A project should be able to configure Claude as the implementer and Codex as the reviewer:
+
+```ts
+agents: {
+  planner: claude('sonnet'),
+  planReviewer: codex('gpt-5.4', { reasoningEffort: 'high' }),
+  implementer: claude('opus'),
+  reviewer: codex('gpt-5.4', { reasoningEffort: 'high' }),
+}
+```
+
+The same project should also be able to switch to Claude for every role, Codex for every role, or any future provider adapter without changing the orchestration loop.
+
+Non-negotiables:
+
+- Per-role agent selection is first-class config, not a hidden CLI hack.
+- Per-role model selection is explicit and flexible.
+- Planner, plan reviewer, implementer, and reviewer can use different engines.
+- Runtime behavior must be engine-agnostic: invoke role, receive structured output, enforce gates, continue the state machine.
+- CLI overrides should eventually support quick experiments such as `--implementer claude:opus --reviewer codex:gpt-5.4`.
+- New providers should implement the public `Agent` interface rather than requiring runtime changes.
 
 ## Recently Shipped
 
@@ -93,18 +123,22 @@ Success criteria:
 
 - A solo engineer can install ChoirMaster globally, initialize any repo, author a task file, and run a small real task safely.
 
-## Phase 2: Planner Pipeline
+## Phase 2: Markdown-First Planner Pipeline
 
-Goal: turn human plans into executable task contracts.
+Goal: turn human markdown plans into executable task contracts.
+
+This phase is a release blocker for the next public package. ChoirMaster should not ask new users to hand-author JSON as the primary path.
 
 This phase has two separable shippables.
 
 ### Phase 2A: Markdown Planner
 
 - `choirmaster plan <plan.md>`
+- `choirmaster run <plan.md>` as the main user-facing workflow.
 - Planner agent decomposes a markdown plan into `*.tasks.json`.
 - User reviews or edits the generated task file before execution.
 - Task files remain conservative, readable, and hand-editable.
+- The planner role uses the same provider-agnostic `Agent` interface as implementer and reviewer roles.
 
 ### Phase 2B: Plan Reviewer
 
@@ -123,6 +157,8 @@ Capabilities:
 Success criteria:
 
 - A user can write intent in markdown and get a conservative, reviewable task plan.
+- A user can run a markdown plan without learning the task-file schema first.
+- The planner can be Claude, Codex, or any future adapter without changing the runtime.
 
 ## Phase 3: Everyday Workflow Commands
 
@@ -198,6 +234,13 @@ Success criteria:
 
 Goal: make ChoirMaster the stable orchestration layer while agents remain pluggable.
 
+Role and model flexibility:
+
+- First-class per-role config for planner, plan reviewer, implementer, and reviewer.
+- Per-role model options such as effort, reasoning depth, timeout, and provider-specific extras.
+- CLI overrides for temporary model swaps without editing `manifest.ts`.
+- Clear logs that show which engine and model handled each role and phase.
+
 Packages and integrations:
 
 - Mature `@choirmaster/agent-claude`.
@@ -210,7 +253,9 @@ Local model adapters should wait until there is a concrete target and use case.
 
 Success criteria:
 
-- Users can swap agent engines without rewriting the orchestration workflow.
+- Users can swap agent engines per role without rewriting the orchestration workflow.
+- Claude implementer plus Codex reviewer is a documented, tested configuration.
+- Claude for every role and Codex for every role are also documented, tested configurations.
 
 ## Testing Strategy
 
@@ -252,8 +297,8 @@ Phase names are product capability phases, not exact package versions. Published
 Suggested release milestones:
 
 - `0.2.x`: Trust core complete enough to dogfood: final-verify resume fixed, task-file validation, resume tests, and ChoirMaster dogfooding.
-- `0.3.x`: Daily local use polished: schema docs, examples, better logs, status/logs/inspect basics.
-- `0.4.x`: Planner pipeline: markdown plan to task file, then plan reviewer.
+- `0.3.x`: Single-package install plus markdown-first planning: `choirmaster run <plan.md>` compiles a markdown plan into a validated task file and runs it.
+- `0.4.x`: Daily local use polished: schema docs, examples, better logs, status/logs/inspect basics.
 - `0.5.x`: GitHub/team workflow: issue input, PR creation, comment summaries.
 - `0.6.x`: Hard guardrails: Docker sandbox and stricter permission profiles.
 - `1.0.0`: Stable task schema, stable config API, reliable resume semantics, documented recovery workflow, and enough dogfooding history to trust the runtime.
@@ -268,6 +313,7 @@ ChoirMaster is ready for everyday engineering use when:
 - Scope checks include committed, staged, unstaged, and untracked changes.
 - Reviewers never see code that failed deterministic gates.
 - The CLI supports status, logs, resume, retry, and reset.
+- Users can choose different agents and models for planner, implementer, and reviewer roles.
 - The README describes only current behavior, with roadmap items clearly marked.
 - The project dogfoods ChoirMaster on its own development.
 
@@ -279,7 +325,7 @@ The order matters:
 
 1. State machine correctness.
 2. Local run ergonomics.
-3. Planner pipeline.
+3. Markdown-first planner pipeline.
 4. Daily workflow commands.
 5. GitHub/team integration.
 6. Hard sandboxing and stronger guardrails.
