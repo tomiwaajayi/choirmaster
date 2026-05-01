@@ -152,10 +152,12 @@ export async function runTask(
   let cwd: string
   let sandboxHandle: SandboxHandle
   try {
-    // Auto-reuse the worktree when resuming a capacity pause - the
-    // worktree was created on the prior run and still has the agent's
-    // edits. The CLI flag is an additional manual override.
-    const allowReuse = previousStatus === 'waiting_for_capacity' || (options.allowReuseWorktree ?? false)
+    // Auto-reuse the worktree on any kind of resume: capacity pause
+    // (waiting_for_capacity) or killed mid-run (in_progress). In both
+    // cases the worktree was created on a prior run and still has the
+    // agent's edits. --reuse-worktree is the additional manual override.
+    const isResume = previousStatus === 'waiting_for_capacity' || previousStatus === 'in_progress'
+    const allowReuse = isResume || (options.allowReuseWorktree ?? false)
     sandboxHandle = await ctx.config.sandbox.setup(task, ctx.projectRoot, { allowReuse })
     cwd = sandboxHandle.cwd
     logger.line(`Sandbox ready at ${sandboxHandle.cwd} (base ${task.base_ref}@${task.base_sha?.slice(0, 8)})`)
@@ -187,9 +189,11 @@ export async function runTask(
   let lastFailureSummary = ''
   let lastSummary = previousLastSummary
 
-  const startAttempt = previousAttempts > 0 && previousStatus === 'pending'
-    ? previousAttempts + 1
-    : 1
+  // If a previous attempt was started (counter > 0), advance past it.
+  // Don't gate this on previousStatus: a saved waiting_for_capacity or
+  // in_progress task here means resume, and the counter must be honored
+  // regardless of how the task ended up that way.
+  const startAttempt = previousAttempts > 0 ? previousAttempts + 1 : 1
   if (startAttempt > task.max_attempts) {
     return blockTask(
       ctx,

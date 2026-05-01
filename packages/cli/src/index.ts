@@ -95,6 +95,12 @@ export async function main(argv: string[]): Promise<number> {
     }
 
     const tasksFile = argList.find((a, i) => !consumed.has(i) && !a.startsWith('--'))
+    if (resumeRunId && tasksFile) {
+      process.stderr.write(
+        `Pass either a tasks file or --resume, not both. (got both '${tasksFile}' and --resume ${resumeRunId})\n`,
+      )
+      return 64
+    }
     if (!resumeRunId && !tasksFile) {
       process.stderr.write(
         'Usage:\n'
