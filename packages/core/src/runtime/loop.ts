@@ -20,16 +20,20 @@
  * pluggable Agent / Sandbox / BranchPolicy interfaces.
  */
 
+import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type {
   AgentEvent,
   CompletionOutcome,
+  GateResult,
   Handoff,
   Review,
   RunState,
   SandboxHandle,
+  SandboxPrepare,
   Task,
 } from '../types.js'
 
@@ -194,10 +198,34 @@ export async function runTask(
     const allowReuse = isResume || (options.allowReuseWorktree ?? false)
     sandboxHandle = await ctx.config.sandbox.setup(task, ctx.projectRoot, { allowReuse })
     cwd = sandboxHandle.cwd
-    logger.line(`Sandbox ready at ${sandboxHandle.cwd} (base ${task.base_ref}@${task.base_sha?.slice(0, 8)})`)
+    logger.line(`Sandbox ready at ${sandboxHandle.cwd} (base ${task.base_ref}@${task.base_sha?.slice(0, 8)}, justCreated=${sandboxHandle.justCreated})`)
   }
   catch (err) {
     return blockTask(ctx, state, task, logger, `sandbox.setup failed: ${(err as Error).message}`)
+  }
+
+  // ── Sandbox prepare ───────────────────────────────────────────────────────
+  // Runs once per fresh worktree, before any agent turn. Typical use:
+  // `pnpm install --frozen-lockfile` so gates (typecheck/test/build) have
+  // a working tool surface. Skipped on reuse because the prior run
+  // already prepared this worktree. A non-zero exit blocks the task with
+  // setup logs - it does NOT consume implementer attempts. A prepare-
+  // failed task signals an environment problem, not a coding problem.
+  const prepare = ctx.config.sandbox.prepare
+  if (prepare && sandboxHandle.justCreated) {
+    const prepareResult = runSandboxPrepare(prepare, cwd, logger)
+    if (!prepareResult.ok) {
+      return blockTask(
+        ctx,
+        state,
+        task,
+        logger,
+        `Sandbox prepare failed (exit ${prepareResult.exitCode}). Command: ${prepare.command}\n\n${prepareResult.tail}`,
+      )
+    }
+  }
+  else if (prepare && !sandboxHandle.justCreated) {
+    logger.line(`Skipping sandbox prepare; worktree was reused from a prior run.`)
   }
 
   // ── Phase-aware resume routing ────────────────────────────────────────────
@@ -283,6 +311,14 @@ export async function runTask(
   // ── Implementer attempt loop ──────────────────────────────────────────────
   let lastFailureSummary = ''
   let lastSummary = previousLastSummary
+  // Tracks the normalized fingerprint of the previous attempt's gate
+  // failure. When two consecutive attempts fail with the same shape, we
+  // block the task instead of burning the rest of the retry budget on
+  // an environment problem the implementer can't reach (e.g. missing
+  // node_modules, a binary that's not on PATH, a network dependency
+  // that's unreachable). Only set when a gate failure terminates an
+  // attempt; cleared by any other terminal path.
+  let lastGateFailureSignature: string | undefined
 
   // Resume from the next un-completed attempt. `completed_attempts` only
   // advances when an attempt ran a full cycle (impl call returned, handoff
@@ -391,11 +427,31 @@ export async function runTask(
       const failureSummary = summariseFailures(gateResult.results)
       logger.block(`GATES FAILED (attempt ${attempt})`, failureSummary)
       lastFailureSummary = failureSummary
+
+      // Repeated identical gate failures are almost always environmental
+      // (missing dependency, unreachable network, persistent
+      // misconfiguration). The implementer can't reach these from inside
+      // `allowed_paths`, so retrying just burns tokens. Block on the
+      // second consecutive identical signature instead.
+      const sig = gateFailureSignature(gateResult.results)
+      if (lastGateFailureSignature === sig) {
+        markAttemptCompleted()
+        return blockTask(
+          ctx,
+          state,
+          task,
+          logger,
+          `Gates failed identically on two consecutive attempts (attempts ${attempt - 1} and ${attempt}). This usually means an environmental problem the implementer can't fix from inside allowed_paths (missing dependency, binary not on PATH, network dependency, etc.). Resolve the environment or adjust the manifest's sandbox.prepare hook, then retry.\n\n${failureSummary}`,
+        )
+      }
+      lastGateFailureSignature = sig
+
       markAttemptCompleted()
       continue
     }
 
     // All green. Cycle complete; mark and move to reviewer.
+    lastGateFailureSignature = undefined
     markAttemptCompleted()
     logger.block(`GATES PASSED (attempt ${attempt})`, 'All deterministic checks green.')
     // Fresh reviewer phase for this attempt - reset both started and
@@ -695,6 +751,68 @@ function streamEventToLogger(logger: TaskLogger, event: AgentEvent): void {
       // Hidden from terminal; not appended to log.
       break
   }
+}
+
+interface SandboxPrepareResult {
+  ok: boolean
+  exitCode: number | null
+  /** Tail of combined stdout + stderr, capped, suitable for logs. */
+  tail: string
+}
+
+/**
+ * Run a sandbox prepare command (e.g. `pnpm install --frozen-lockfile`)
+ * synchronously inside the worktree's cwd. Streams nothing live; captures
+ * output and lands a structured block in the task log on completion.
+ * Failure surfaces as `ok: false` with the captured tail; the caller
+ * decides whether to block the task.
+ */
+function runSandboxPrepare(
+  prepare: SandboxPrepare,
+  cwd: string,
+  logger: TaskLogger,
+): SandboxPrepareResult {
+  logger.block('SANDBOX PREPARE', `Running: ${prepare.command}\nIn: ${cwd}`)
+  const t0 = Date.now()
+  const r = spawnSync(prepare.command, {
+    cwd,
+    shell: true,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  })
+  const ms = Date.now() - t0
+  const stdout = (r.stdout ?? '').slice(-8000)
+  const stderr = (r.stderr ?? '').slice(-8000)
+  const tail = `stdout:\n${stdout.trim() || '(empty)'}\n\nstderr:\n${stderr.trim() || '(empty)'}`
+  if (r.status === 0) {
+    logger.block('SANDBOX PREPARE OK', `${prepare.command} (${ms}ms, exit 0)`)
+    return { ok: true, exitCode: 0, tail }
+  }
+  logger.block(
+    'SANDBOX PREPARE FAILED',
+    `${prepare.command} (${ms}ms, exit ${r.status})\n\n${tail}`,
+  )
+  return { ok: false, exitCode: r.status, tail }
+}
+
+/**
+ * Hash the gate-failure shape so the runtime can detect "same failure
+ * twice in a row" without retrying past the implementer's reach. Strips
+ * timing-sensitive output (millisecond counts, absolute paths embedded
+ * in stderr) so cosmetic noise doesn't break the comparison.
+ */
+function gateFailureSignature(results: GateResult[]): string {
+  const parts: string[] = []
+  for (const r of results) {
+    if (r.ok) continue
+    const noisy = `${r.stderr}\n${r.stdout}`.slice(0, 4000)
+    const stripped = noisy
+      .replace(/\d+(?:\.\d+)?\s*ms\b/g, '<ms>')
+      .replace(/\(\d+ms\)/g, '(<ms>)')
+      .replace(/[/\\][^\s'"`]+[/\\]/g, '<path>/')
+    parts.push(`${r.name}|${r.exitCode}|${stripped}`)
+  }
+  return createHash('sha256').update(parts.join('\n---\n')).digest('hex')
 }
 
 function pauseForCapacity(

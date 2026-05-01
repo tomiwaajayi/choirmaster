@@ -9,7 +9,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { currentBranch, git } from '../runtime/git.js'
-import type { Sandbox, SandboxHandle, SandboxSetupOptions, Task } from '../types.js'
+import type { Sandbox, SandboxHandle, SandboxPrepare, SandboxSetupOptions, Task } from '../types.js'
 
 export interface WorktreeSandboxOptions {
   /**
@@ -18,11 +18,20 @@ export interface WorktreeSandboxOptions {
    * paused worktrees aren't rejected mid-run.
    */
   allowReuse?: boolean
+  /**
+   * Optional command the runtime runs after a fresh worktree is created
+   * (typically `pnpm install --frozen-lockfile`, `bundle install`, etc).
+   * The hook is runtime-owned: prepare runs once per fresh worktree,
+   * before any agent turn, and a non-zero exit blocks the task with
+   * setup logs instead of consuming implementer retry budget.
+   */
+  prepare?: SandboxPrepare
 }
 
 export function worktreeSandbox(factoryOptions: WorktreeSandboxOptions = {}): Sandbox {
   return {
     name: 'worktree',
+    prepare: factoryOptions.prepare,
     async setup(task: Task, projectRoot: string, options?: SandboxSetupOptions): Promise<SandboxHandle> {
       if (!task.base_ref) {
         throw new Error(
@@ -53,7 +62,7 @@ export function worktreeSandbox(factoryOptions: WorktreeSandboxOptions = {}): Sa
             + `\`git worktree remove ${task.worktree}\` and let setup create a fresh one.`,
           )
         }
-        return { cwd: worktreePath, worktreePath }
+        return { cwd: worktreePath, worktreePath, justCreated: false }
       }
 
       const result = git(
@@ -64,7 +73,7 @@ export function worktreeSandbox(factoryOptions: WorktreeSandboxOptions = {}): Sa
         throw new Error(`git worktree add failed: ${result.stderr.trim() || result.stdout.trim()}`)
       }
 
-      return { cwd: worktreePath, worktreePath }
+      return { cwd: worktreePath, worktreePath, justCreated: true }
     },
   }
 }

@@ -658,4 +658,132 @@ describe('runTask', () => {
     expect(task.status).toBe('blocked')
     expect(task.blocked_reason ?? '').toMatch(/final-verify/)
   })
+
+  // ── Sandbox prepare ────────────────────────────────────────────────────────
+
+  it('runs the sandbox prepare hook once per fresh worktree', async () => {
+    // The prepare command writes one byte to a host-side counter file
+    // each time it runs, so we can count invocations across runs.
+    const prepareCounter = join(env.projectRoot, '.prepare-runs')
+    const prepareCmd = `node -e "require('fs').appendFileSync('${prepareCounter}', 'p')"`
+    const { config, reviewer } = buildConfig(
+      env,
+      [turnHandoff(
+        TASK_ID,
+        { verdict: 'READY_FOR_REVIEW' },
+        [{ path: 'app/foo.txt', contents: 'hi' }],
+      )],
+      [turnReview(TASK_ID, { verdict: 'READY' })],
+    )
+    config.sandbox = worktreeSandbox({ prepare: { command: prepareCmd } })
+
+    const ctx = buildContext(env, config)
+    saveState(env.runDir, buildState(buildTask()))
+    const { state, task } = reload(env, TASK_ID)
+
+    await runTask(ctx, state, task)
+    expect(task.status).toBe('completed')
+    // Prepare ran exactly once - on fresh creation.
+    expect(readFileSync(prepareCounter, 'utf8')).toBe('p')
+    expect(reviewer.calls).toBe(1)
+  })
+
+  it('blocks the task immediately when sandbox prepare exits non-zero', async () => {
+    // A prepare that fails (`node -e "process.exit(2)"`) must block
+    // before any agent turn fires - prepare failure is environmental,
+    // not a coding problem, and it would be wasteful to run the
+    // implementer just to fail gates a few seconds later.
+    const failingPrepare = `node -e "console.log('preparing'); console.error('boom'); process.exit(2)"`
+    const { config, implementer, reviewer } = buildConfig(
+      env,
+      [turnHandoff(TASK_ID, { verdict: 'READY_FOR_REVIEW' })], // never invoked
+      [turnReview(TASK_ID, { verdict: 'READY' })], // never invoked
+    )
+    config.sandbox = worktreeSandbox({ prepare: { command: failingPrepare } })
+
+    const ctx = buildContext(env, config)
+    saveState(env.runDir, buildState(buildTask()))
+    const { state, task } = reload(env, TASK_ID)
+
+    await runTask(ctx, state, task)
+    expect(task.status).toBe('blocked')
+    expect(task.blocked_reason ?? '').toMatch(/prepare failed/i)
+    expect(task.blocked_reason ?? '').toMatch(/boom/)
+    // No agent turns were burned by the prepare failure.
+    expect(implementer.calls).toBe(0)
+    expect(reviewer.calls).toBe(0)
+  })
+
+  // ── Duplicate gate-failure detection ───────────────────────────────────────
+
+  it('blocks early when two consecutive attempts fail with the same gate signature', async () => {
+    // Custom gate: always fails with the same fingerprint. Mirrors the
+    // real-world dogfood failure where `tsc: command not found` repeats
+    // verbatim across attempts. The runtime must give up on attempt 2
+    // (signature equals attempt 1's), not burn through the full
+    // maxAttempts=4 budget.
+    const failingGate = `node -e "process.stderr.write('command not found: tsc\\n'); process.exit(127)"`
+    const { config, implementer } = buildConfig(
+      env,
+      [
+        turnHandoff(TASK_ID, { verdict: 'READY_FOR_REVIEW' },
+          [{ path: 'app/foo.txt', contents: 'v1' }]),
+        turnHandoff(TASK_ID, { verdict: 'READY_FOR_REVIEW' },
+          [{ path: 'app/foo.txt', contents: 'v2' }]),
+      ],
+      [],
+    )
+    // Replace the default config gate with one that always fails the
+    // same way.
+    config.gates = [{ name: 'typecheck', command: failingGate }]
+
+    const ctx = buildContext(env, config)
+    saveState(env.runDir, buildState(buildTask()))
+    const { state, task } = reload(env, TASK_ID)
+
+    await runTask(ctx, state, task)
+    expect(task.status).toBe('blocked')
+    expect(task.blocked_reason ?? '').toMatch(/two consecutive attempts/i)
+    // Implementer ran exactly twice (attempt 1 + attempt 2). Without
+    // duplicate-detection it would have run 4 times.
+    expect(implementer.calls).toBe(2)
+    expect(task.attempts).toBe(2)
+  })
+
+  it('does not block on duplicate detection when gate output differs between attempts', async () => {
+    // A gate that emits a different message each time. Even though it
+    // always fails with exit 1, the signatures differ, so the runtime
+    // exhausts the full attempt budget instead of short-circuiting.
+    const flakyGate = `node -e "process.stderr.write('attempt-' + process.env.ATTEMPT_TAG + '\\n'); process.exit(1)"`
+    const { config, implementer } = buildConfig(
+      env,
+      [
+        turnHandoff(TASK_ID, { verdict: 'READY_FOR_REVIEW' },
+          [{ path: 'app/foo.txt', contents: 'v1' }]),
+        turnHandoff(TASK_ID, { verdict: 'READY_FOR_REVIEW' },
+          [{ path: 'app/foo.txt', contents: 'v2' }]),
+        turnHandoff(TASK_ID, { verdict: 'READY_FOR_REVIEW' },
+          [{ path: 'app/foo.txt', contents: 'v3' }]),
+        turnHandoff(TASK_ID, { verdict: 'READY_FOR_REVIEW' },
+          [{ path: 'app/foo.txt', contents: 'v4' }]),
+      ],
+      [],
+    )
+    // The implementer's content edit becomes the gate's tag, so the
+    // stderr changes per attempt.
+    config.gates = [{
+      name: 'typecheck',
+      command: `ATTEMPT_TAG=$(cat app/foo.txt 2>/dev/null || echo none) ${flakyGate}`,
+    }]
+
+    const ctx = buildContext(env, config)
+    saveState(env.runDir, buildState(buildTask()))
+    const { state, task } = reload(env, TASK_ID)
+
+    await runTask(ctx, state, task)
+    expect(task.status).toBe('blocked')
+    expect(task.blocked_reason ?? '').toMatch(/Max implementation attempts/)
+    // All 4 attempts ran because each had a unique signature.
+    expect(implementer.calls).toBe(4)
+  })
 })

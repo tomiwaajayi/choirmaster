@@ -275,6 +275,14 @@ export interface SandboxHandle {
   worktreePath: string
   /** Optional cleanup hook. */
   cleanup?: () => Promise<void>
+  /**
+   * True when `setup` just created the underlying sandbox (e.g. the
+   * worktree did not previously exist on disk). Lets the runtime decide
+   * whether to run a configured `prepare` step on first creation while
+   * skipping it on reuse - the typical "install dependencies once,
+   * reuse on resume" pattern.
+   */
+  justCreated: boolean
 }
 
 export interface SandboxSetupOptions {
@@ -286,10 +294,40 @@ export interface SandboxSetupOptions {
   allowReuse?: boolean
 }
 
+/**
+ * Optional setup hook the runtime invokes after a fresh sandbox is
+ * created and BEFORE any agent turn begins. Typical use: install
+ * dependencies (`pnpm install --frozen-lockfile`, `bundle install`,
+ * `uv sync`) so that gates have a working tool surface.
+ *
+ * The runtime owns invocation, captures output to the task log, and
+ * blocks the task immediately on non-zero exit instead of consuming
+ * implementer attempts. A prepare-failed task signals an environment
+ * problem, not a coding problem.
+ */
+export interface SandboxPrepare {
+  /** Shell command, run with the sandbox's cwd. */
+  command: string
+  /**
+   * When the prepare command fires. Currently only `once-per-worktree`
+   * is supported: runs immediately after sandbox creation and is skipped
+   * on reuse (e.g. capacity-pause resume). Future modes might include
+   * `every-attempt` for cache-cold projects.
+   */
+  run?: 'once-per-worktree'
+}
+
 export interface Sandbox {
   readonly name: string
   setup(task: Task, projectRoot: string, options?: SandboxSetupOptions): Promise<SandboxHandle>
   teardown?(handle: SandboxHandle): Promise<void>
+  /**
+   * Optional prepare configuration. The runtime reads this after a
+   * `setup` call returns `justCreated: true` and runs the command
+   * inside the sandbox cwd. Sandbox factories (`worktreeSandbox`, a
+   * future `dockerSandbox`) accept it as a constructor option.
+   */
+  prepare?: SandboxPrepare
 }
 
 // ────────────────────────────────────────────────────────────────────────────
