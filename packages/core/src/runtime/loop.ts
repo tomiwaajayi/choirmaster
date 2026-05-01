@@ -200,11 +200,22 @@ export async function runTask(
   }
 
   // ── Phase-aware resume routing ────────────────────────────────────────────
-  // If the previous run paused inside the reviewer, the implementer has
-  // already produced a successful diff; jump straight to the reviewer loop.
-  // implementer_fix is treated similarly for v0.1 (both go to reviewer).
-  if (previousPausedPhase === 'reviewer' || previousPausedPhase === 'implementer_fix') {
-    logger.block('RESUME', `Previous paused phase: ${previousPausedPhase}. Re-entering reviewer at iteration ${previousReviewIterations + 1}.`)
+  // Re-enter the reviewer loop when:
+  //   - explicit capacity pause set paused_phase to 'reviewer' or 'implementer_fix'
+  //   - a kill left no paused_phase but review_iterations > 0 (we were past
+  //     the implementer phase when the process died)
+  // In all of these the implementer has already produced a successful diff
+  // and gates have already passed; restarting the implementer would
+  // throw away that work.
+  const wasInReviewerPhase
+    = previousPausedPhase === 'reviewer'
+    || previousPausedPhase === 'implementer_fix'
+    || previousReviewIterations > 0
+  if (wasInReviewerPhase) {
+    const reason = previousPausedPhase
+      ? `paused at ${previousPausedPhase}`
+      : `killed mid-reviewer (review_iterations=${previousReviewIterations})`
+    logger.block('RESUME', `${reason}. Re-entering reviewer at iteration ${previousReviewIterations + 1}.`)
     const review = await runReviewerLoop(
       ctx,
       state,

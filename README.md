@@ -4,7 +4,9 @@
 
 ChoirMaster is a local CLI for indie developers and small teams who want to run multi-step refactors with AI coding agents without losing the day to scope drift, audit failures, and merge conflicts.
 
-You write a plan (a markdown file or a GitHub issue). ChoirMaster decomposes it into tasks, reviews the breakdown until it's tight, then drives each task through implementer → deterministic gates (typecheck / test / audit) → reviewer → commit → merge, all in isolated git worktrees. When something goes wrong, every state is recoverable; when capacity runs out, every retry counter is preserved.
+You author a tasks file (a `tasks.json` describing each unit of work, its allowed paths, and its definition of done). ChoirMaster drives each task through implementer → deterministic gates (typecheck / test / audit) → reviewer → commit → merge, all in isolated git worktrees. When something goes wrong, every state is recoverable; when capacity runs out, every retry counter is preserved.
+
+A planner agent that turns a markdown plan or a GitHub issue *into* a tasks file is on the roadmap; for now you write the tasks file by hand (the `init` scaffold ships an example).
 
 The agents do the work. ChoirMaster owns the loop, the gates, the worktrees, and the merges.
 
@@ -25,13 +27,15 @@ Solo developers, indie hackers, and small teams running serious refactors on the
 
 ## What you get out of the box
 
-- **Plan as input.** A structured markdown file or a GitHub issue. The planner agent decomposes it into typed task contracts; the plan-reviewer iterates until every contract is tight.
-- **Hard scope enforcement.** Each task declares `allowed_paths` and `forbidden_paths`. Edits outside the contract are caught after the fact and the worktree is reverted.
-- **Project-wide safeguards.** A single `forbiddenPaths` and `strictInstructions` declared once in your project manifest applies to every task: `.env*` always blocked, "never run pnpm install" always in the prompt.
-- **Deterministic gates.** typecheck, test, audit scripts run after every implementer turn. Failures route back to the implementer with the failure summary; the reviewer never sees broken code.
-- **Recoverable everywhere.** Hit Claude's rate limit mid-run? The orchestrator pauses cleanly and resumes from the same phase on the next run. Killed the process? The state file is the source of truth; nothing is lost.
+- **Typed task contracts.** Each task in your `tasks.json` declares its branch, worktree, allowed and forbidden paths, gates, and definition of done. The runtime reads these and orchestrates the rest.
+- **Hard scope enforcement.** Edits outside `allowed_paths` are caught after the agent's turn and the worktree is reverted. The check looks at committed + staged + unstaged + untracked, so an agent that ignores the prompt and commits anyway is still rolled back.
+- **Project-wide safeguards.** `forbiddenPaths` and `strictInstructions` declared once in your manifest apply to every task: `.env*` always blocked, "never run pnpm install" always in the prompt.
+- **Deterministic gates.** Typecheck, test, audit scripts run after every implementer turn. Failures route back to the implementer with the failure summary; the reviewer never sees broken code.
+- **Recoverable everywhere.** Hit Claude's rate limit mid-run? The orchestrator pauses cleanly and resumes from the same phase on the next run. Killed the process? `choirmaster run --resume <run-id>` picks up where it left off.
 - **Auto-merge between tasks.** Each completed task merges into your base branch, so subsequent tasks fork from the latest state and see the prior work.
 - **Per-task git worktrees.** Tasks never touch your main checkout. Inspect any task's branch independently.
+
+A planner agent (markdown plans / GitHub issues → tasks file) is on the roadmap and is the next major slice.
 
 ## Architecture
 

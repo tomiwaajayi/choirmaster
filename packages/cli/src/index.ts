@@ -28,22 +28,26 @@ const HELP = `choirmaster - agentic-coding orchestrator
 Usage:
   choirmaster <command> [options]
 
-Commands (planned; not yet implemented):
-  init                       Scaffold .choirmaster/ in the current repo
-  plan <plan.md>             Decompose a plan into tasks (planner + reviewer loop)
-  plan --issue <n>           Decompose from a GitHub issue
-  plan --label <name>        Decompose from issues with a label
-  run <plan.md>              Execute every task in order
-  run --issue <n>            Execute from a GitHub issue
-  status                     Show all runs and their states
-  reset <run-id>             Reset blocked tasks in a run
+Commands:
+  init [--force]                Scaffold .choirmaster/ in the current repo
+  run <tasks.json>              Run every pending task in the file
+  run --resume <run-id>         Resume a paused or interrupted run
+
+Run options:
+  --continue-on-blocked         Skip blocked tasks instead of halting
+  --reuse-worktree              Allow reusing existing worktrees
+  --no-auto-merge               Leave each task on its branch (no auto-merge)
 
 Options:
-  -v, --version              Print version
-  -h, --help                 Print this help
+  -v, --version                 Print version
+  -h, --help                    Print this help
 
-Status: pre-alpha. Subcommands print "not yet implemented" placeholders.
-See https://github.com/tomiwaajayi/choirmaster for progress.
+Coming soon:
+  plan <plan.md> | --issue N    Decompose a plan or GitHub issue into tasks
+  status                        Show all runs and their states
+  reset <run-id>                Reset blocked tasks in a run
+
+Pre-alpha. https://github.com/tomiwaajayi/choirmaster
 `
 
 export async function main(argv: string[]): Promise<number> {
@@ -61,10 +65,11 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   const command = args[0]
-  const KNOWN: Record<string, string> = {
-    init: 'Scaffold .choirmaster/ in the current repo',
-    plan: 'Decompose a plan into tasks',
-    run: 'Execute a plan',
+  // Unimplemented commands fall through to a "coming soon" stub so users
+  // get a clear signal instead of "unknown command". Implemented commands
+  // (init, run) are dispatched by their own branches below.
+  const COMING_SOON: Record<string, string> = {
+    plan: 'Decompose a plan or GitHub issue into a tasks file',
     status: 'Show all runs and their states',
     reset: 'Reset blocked tasks in a run',
   }
@@ -119,9 +124,9 @@ export async function main(argv: string[]): Promise<number> {
     })
   }
 
-  if (command && command in KNOWN) {
-    process.stderr.write(`choirmaster: '${command}' is not yet implemented (pre-alpha).\n`)
-    process.stderr.write(`             ${KNOWN[command]}\n`)
+  if (command && command in COMING_SOON) {
+    process.stderr.write(`choirmaster: '${command}' is not yet implemented.\n`)
+    process.stderr.write(`             ${COMING_SOON[command]}\n`)
     return 2
   }
 
