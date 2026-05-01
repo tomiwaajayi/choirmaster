@@ -46,8 +46,17 @@ export interface Task {
   gates: GateConfig[]
   /** What makes this task READY. The reviewer checks against this. */
   definition_of_done: string[]
-  /** Ids of tasks that must complete (and merge) before this one starts. */
+  /** Ids of tasks that must complete before this one starts. */
   depends_on?: string[]
+  /**
+   * Per-task overrides. Values default to the project-level config when
+   * omitted. Use these when a single task needs a different sandbox
+   * (e.g. one task needs Docker isolation), a different branch policy
+   * (e.g. one task should open a PR while others auto-merge), or a
+   * different agent set (e.g. a tricky refactor wants Opus where the
+   * default is Sonnet).
+   */
+  overrides?: TaskOverrides
 
   // Runtime mutable state (preserved across orchestrator runs for resume).
   attempts: number
@@ -142,13 +151,46 @@ export type AgentEvent =
   | { kind: 'error'; message: string }
 
 export interface Agent {
-  /** Display name for logs and CLI output. */
+  /** Display name for logs and CLI output, e.g. "claude:opus". */
   readonly name: string
+  /**
+   * Engine identifier the runtime can use to recreate this agent with a
+   * different model at run time. Examples: "claude", "codex", "opencode".
+   */
+  readonly engine: string
+  /**
+   * Model identifier within the engine, e.g. "opus", "sonnet", "haiku",
+   * "gpt-5.5", "codex-5.3". Free-form; engines validate.
+   */
+  readonly model: string
   /** Invoke one turn. Resolves when the turn ends. */
   invoke(
     opts: AgentInvokeOpts,
     onEvent?: (event: AgentEvent) => void,
   ): Promise<AgentResult>
+}
+
+/**
+ * Engine factories live in their own packages (`@choirmaster/agent-claude`,
+ * `@choirmaster/agent-codex`, etc.) and register themselves so the CLI can
+ * resolve "claude:opus" or "codex:gpt-5.5" strings at runtime to a fresh
+ * Agent. This is what lets `choirmaster set-model implementer claude:opus`
+ * swap the implementer mid-run without editing the manifest.
+ */
+export interface AgentFactory {
+  /** Engine identifier matched against the prefix of "engine:model" strings. */
+  readonly engine: string
+  /** Construct a new Agent for the given model id. */
+  create(model: string, opts?: AgentFactoryOptions): Agent
+}
+
+export interface AgentFactoryOptions {
+  /** Optional thinking-effort hint, where supported. */
+  effort?: 'low' | 'medium' | 'high' | 'max'
+  /** Per-call timeout in ms; null disables. */
+  timeoutMs?: number | null
+  /** Engine-specific arbitrary options. */
+  extra?: Record<string, unknown>
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -209,25 +251,71 @@ export interface Sandbox {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Branch strategy (how completed work merges)
+// Branch policy (how completed work rejoins the base branch)
 // ────────────────────────────────────────────────────────────────────────────
 
-export type MergeOutcome =
+/**
+ * What happens after a task commits. Built-in factories cover the common
+ * shapes (the runtime ships `headOnly()`, `perTaskMerge()`, `perTaskBranch()`,
+ * `openPullRequest()` etc.); users can also implement BranchPolicy directly
+ * for arbitrary completion behaviour.
+ */
+export type CompletionOutcome =
+  /** Task commit was merged into the base branch on the host. */
   | { kind: 'merged'; into: string; sha: string }
+  /** Task commit lives on its own branch; no merge happened. */
   | { kind: 'left-on-branch'; branch: string; sha: string }
+  /** Branch was pushed and a pull request opened. */
+  | { kind: 'pull-request-opened'; branch: string; sha: string; url: string; number?: number }
+  /** Merge into base failed due to conflict. Base tree was left clean. */
   | { kind: 'conflict'; into: string; details: string }
+  /** Anything else that prevented completion. */
+  | { kind: 'failed'; reason: string }
 
 export interface BranchPolicy {
   readonly name: string
   /** What ref the worktree should fork from. Captured at worktree creation. */
   resolveBase(projectRoot: string, task: Task): { ref: string; sha: string }
   /** What to do after a successful task commit. */
-  onTaskCompleted(projectRoot: string, task: Task): Promise<MergeOutcome>
+  onTaskCompleted(projectRoot: string, task: Task): Promise<CompletionOutcome>
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Per-task overrides
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A task can override any subset of the project-level config. The runtime
+ * reads project config first, applies these overrides on top, then applies
+ * any active runtime overrides (set via `choirmaster set ...`) last.
+ */
+export interface TaskOverrides {
+  agents?: Partial<AgentRoles>
+  gates?: GateConfig[]
+  sandbox?: Sandbox
+  branchPolicy?: BranchPolicy
+  /** Engine-specific options (effort, timeoutMs, etc.) layered on agent calls. */
+  agentOptions?: Partial<Record<keyof AgentRoles, AgentFactoryOptions>>
 }
 
 // ────────────────────────────────────────────────────────────────────────────
 // Run state (per-orchestrator-invocation)
 // ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Mid-run overrides applied dynamically via the CLI. Persists in the run
+ * state so subsequent task invocations use the new selection, and survives
+ * orchestrator restarts. Cleared by `choirmaster reset-overrides`.
+ *
+ * Each entry is a string of the form "engine:model" (e.g. "claude:opus",
+ * "codex:gpt-5.5"). The runtime resolves these against registered
+ * `AgentFactory` instances at invocation time.
+ */
+export interface RuntimeOverrides {
+  models?: Partial<Record<keyof AgentRoles, string>>
+  branchPolicy?: string
+  sandbox?: string
+}
 
 export interface RunState {
   /** Run id; usually a timestamp + slug. */
@@ -237,6 +325,8 @@ export interface RunState {
   started_at: string | null
   current_task: string | null
   tasks: Task[]
+  /** Optional dynamic overrides set via the CLI mid-run. */
+  runtime_overrides?: RuntimeOverrides
 }
 
 // ────────────────────────────────────────────────────────────────────────────
