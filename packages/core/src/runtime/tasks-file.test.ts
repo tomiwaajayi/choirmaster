@@ -156,10 +156,28 @@ describe('validateTasksFile', () => {
     expect(errors.some((e) => e.includes('worktree') && e.includes("'..'"))).toBe(true)
   })
 
+  it("rejects '.' segments (same on-disk-collision rationale as '..')", () => {
+    // `./b` and `b` resolve to the same directory. Same hole as `..`,
+    // smaller blast radius - a task file could still pass validation
+    // with two worktrees that collide at sandbox.setup. Reject `.`
+    // outright so the indexed string equals the on-disk path.
+    const errors = bad(validateTasksFile([
+      { ...validTask, worktree: './b' },
+    ]))
+    expect(errors.some((e) => e.includes('worktree') && e.includes("'.'"))).toBe(true)
+  })
+
+  it("rejects '.' segments in the middle of a worktree path", () => {
+    const errors = bad(validateTasksFile([
+      { ...validTask, worktree: '.choirmaster/./wt/01' },
+    ]))
+    expect(errors.some((e) => e.includes('worktree') && e.includes("'.'"))).toBe(true)
+  })
+
   it("rejects two worktree paths that resolve to the same directory after normalization", () => {
-    // The strict `..` rule above means both tasks fail validation; this
-    // test pins that no path in the list survives to silently collide
-    // on disk with another. Without strict `..` rejection (or path
+    // The strict `.` and `..` rules above mean both tasks fail
+    // validation; this test pins that no two paths in the list survive
+    // to silently collide on disk. Without strict rejection (or path
     // normalization at index time), the second task would slip through
     // validation and crash mid-run in `git worktree add`.
     const errors = bad(validateTasksFile([
@@ -167,6 +185,15 @@ describe('validateTasksFile', () => {
       { ...validTask, id: 'TASK-B', branch: 'task/b', worktree: '.choirmaster/wt/x/../a' },
     ]))
     expect(errors.some((e) => e.includes("'..'"))).toBe(true)
+  })
+
+  it("does not flag directory names that happen to start with '.'", () => {
+    // `.choirmaster` is a directory whose name starts with a dot. It is
+    // not a `.` path segment, so it must continue to validate.
+    const result = ok(validateTasksFile([
+      { ...validTask, worktree: '.choirmaster/wt/legitimate' },
+    ]))
+    expect(result.tasks).toHaveLength(1)
   })
 
   it('rejects a Windows drive-rooted worktree path', () => {

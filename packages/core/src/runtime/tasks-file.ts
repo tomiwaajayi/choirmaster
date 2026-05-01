@@ -239,16 +239,15 @@ function requireNonEmptyString(
  * Validate a path field that the runtime resolves under the project root
  * (e.g. `task.worktree`, which becomes `join(projectRoot, value)` inside
  * the worktree sandbox). The check refuses anything that could escape
- * (absolute paths, Windows drive letters) and any `..` segment, even one
- * that would normalize back to a safe path like `a/../b`.
+ * (absolute paths, Windows drive letters) and any `.` or `..` path
+ * segment, even ones that would normalize back to a safe path.
  *
- * The `..` rule is strict-by-design. Allowing safe-looking `..` like
- * `a/../b` would let two tasks index distinct worktree strings that
- * resolve to the same directory on disk - the second task's
+ * The strict-segment rule keeps the validated string equal to the
+ * on-disk path so the duplicate-worktree check is meaningful. Allowing
+ * `a/../b` or `./b` would let two tasks index distinct worktree strings
+ * that resolve to the same directory on disk - the second task's
  * `git worktree add` would then collide mid-run, defeating the point of
- * up-front validation. Forbidding `..` outright keeps the validated
- * string equal to the on-disk path so the duplicate-worktree check is
- * meaningful.
+ * up-front validation.
  *
  * Without this check a malformed or generated tasks file could direct
  * the agent's worktree at arbitrary host paths, sidestepping every
@@ -277,8 +276,9 @@ function requireSafeRelativePath(
     errors.push(`${path}.${key} must be a relative path (got drive-rooted '${v}')`)
     return null
   }
-  if (unified.split('/').includes('..')) {
-    errors.push(`${path}.${key} must not contain '..' segments (got '${v}'); use a direct path that stays inside the project`)
+  const segments = unified.split('/')
+  if (segments.includes('..') || segments.includes('.')) {
+    errors.push(`${path}.${key} must not contain '.' or '..' segments (got '${v}'); use a direct path that stays inside the project`)
     return null
   }
   return v
