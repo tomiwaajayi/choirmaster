@@ -1,41 +1,43 @@
 # ChoirMaster
 
-> Write a plan, ship the work. An orchestrator for AI coding agents.
+> Write a markdown plan, get scoped, gated, reviewable agent work.
 
-ChoirMaster is a local CLI for indie developers and small teams who want to run multi-step refactors with AI coding agents without losing the day to scope drift, audit failures, and merge conflicts.
+ChoirMaster is a local CLI for developers and small teams who want to use AI coding agents on real codebases without losing the day to scope drift, broken gates, mystery edits, or unrecoverable runs.
 
-You author a tasks file (a `tasks.json` describing each unit of work, its allowed paths, and its definition of done). ChoirMaster drives each task through implementer → deterministic gates (typecheck / test / audit) → reviewer → commit → merge, all in isolated git worktrees. When something goes wrong, every state is recoverable; when capacity runs out, every retry counter is preserved.
+The happy path is markdown-first: you write a plan, run `choirmaster run <plan.md>`, and ChoirMaster turns it into a validated task contract before executing it. Each task then moves through implementer → deterministic gates (typecheck / test / audit) → reviewer → commit → branch policy, all in isolated git worktrees.
 
-A planner agent that turns a markdown plan or a GitHub issue *into* a tasks file is on the roadmap; for now you write the tasks file by hand (the `init` scaffold ships an example).
+The generated `*.tasks.json` file is still there, readable, and safe to inspect or edit. It is the execution contract, not the thing a new user should have to hand-author on day one.
 
 The agents do the work. ChoirMaster owns the loop, the gates, the worktrees, and the merges.
 
 ## Status
 
-Pre-alpha. Active development. APIs will change.
+Pre-alpha. `choirmaster@0.3.0` is published and dogfooded by this repo. APIs will still change.
 
 ## Who it's for
 
-Solo developers, indie hackers, and small teams running serious refactors on their own codebases. You write the plan, you review the diffs, you ship. ChoirMaster does the mechanical bits in between, inside the scope you defined.
+Solo developers, indie hackers, and small teams running scoped docs work, tests, refactors, migrations, and cleanup tasks on their own codebases. You write or review the plan, you review the diffs, you ship. ChoirMaster does the mechanical bits in between, inside the scope you defined.
 
 ## What it isn't
 
 - **Not a hosted service or SaaS.** It's a local CLI. Runs on your machine. State lives in your repo and your filesystem.
-- **Not a Claude or Codex replacement.** It calls the official `claude` and `codex` CLIs you already have installed and authenticated. Your subscription, your auth, your rate limits.
-- **Not a "give me a goal, I'll do everything" agent.** You author the plan, you set the scope, you read the diffs. ChoirMaster only executes work that fits inside the contract you (or the planner agent operating under your review) approved.
+- **Not a Claude or Codex replacement.** Today it ships with a Claude Code adapter and shells out to the `claude` CLI you already have installed and authenticated. Codex and other providers are planned behind the same adapter interface.
+- **Not a "give me a goal, I'll do everything" agent.** You provide the plan, set the scope, and read the diffs. ChoirMaster only executes work that fits inside the contract generated from that plan.
 - **Not telemetry-bearing.** No analytics, no phone-home, no accounts. The repo is the entire product.
 
 ## What you get out of the box
 
-- **Typed task contracts.** Each task in your `tasks.json` declares its branch, worktree, allowed and forbidden paths, gates, and definition of done. The runtime reads these and orchestrates the rest.
+- **Markdown-first planning.** `choirmaster run <plan.md>` plans and runs in one flow. `choirmaster plan <plan.md>` stops after generating the task contract so you can review it first.
+- **Typed task contracts.** Each generated `*.tasks.json` declares branches, worktrees, allowed and forbidden paths, gates, dependencies, retry limits, and definitions of done. The runtime validates the whole file before any task starts.
 - **Hard scope enforcement.** Edits outside `allowed_paths` are caught after the agent's turn and the worktree is reverted. The check looks at committed + staged + unstaged + untracked, so an agent that ignores the prompt and commits anyway is still rolled back.
+- **Planner mutation guard.** Planning runs against the real repo, so ChoirMaster snapshots git-visible state plus configured forbidden paths before and after the planner turn. Rogue planner edits block the run.
 - **Project-wide safeguards.** `forbiddenPaths` and `strictInstructions` declared once in your manifest apply to every task: `.env*` always blocked, "never run pnpm install" always in the prompt.
 - **Deterministic gates.** Typecheck, test, audit scripts run after every implementer turn. Failures route back to the implementer with the failure summary; the reviewer never sees broken code.
+- **Sandbox prepare hook.** Fresh worktrees can run setup once before any agent turn, e.g. `pnpm install --frozen-lockfile`, so real project gates have dependencies available.
 - **Recoverable everywhere.** Hit Claude's rate limit mid-run? The orchestrator pauses cleanly and resumes from the same phase on the next run. Killed the process? `choirmaster run --resume <run-id>` picks up where it left off.
-- **Auto-merge between tasks.** Each completed task merges into your base branch, so subsequent tasks fork from the latest state and see the prior work.
+- **Configurable branch policy.** Completed tasks can merge into the base branch, fast-forward the base, or stay on task branches for manual review.
 - **Per-task git worktrees.** Tasks never touch your main checkout. Inspect any task's branch independently.
-
-A planner agent (markdown plans / GitHub issues → tasks file) is on the roadmap and is the next major slice.
+- **One package.** The CLI, runtime, Claude adapter, and public types ship as `choirmaster`.
 
 ## Architecture
 
@@ -43,30 +45,33 @@ Three layers, one published package:
 
 1. **Runtime** - state machine, retry caps, capacity pause/resume, worktree management, scope enforcement, gate runner, auto-merge with conflict abort. Project-agnostic.
 2. **Agent adapters** - pluggable `Agent` interface; the default Claude Code adapter ships in the box. Future agents (Codex, OpenCode, custom) implement the same interface.
-3. **Project config** - a typed `manifest.ts` per repo declares base branch, agent preferences, gates, and prompt files. Tasks files (`*.tasks.json`) live under `.choirmaster/plans/`. A planner agent that turns markdown plans or GitHub issues into tasks files is on the roadmap.
+3. **Project config** - a typed `manifest.ts` per repo declares base branch, agent preferences, gates, sandbox setup, branch policy, and prompt files. Markdown plans live under `.choirmaster/plans/`; generated `*.tasks.json` files are the validated execution contracts.
 
 The repo is a pnpm workspace with internal modules (`packages/core`, `packages/agent-claude`, `packages/cli`); `pnpm build` bundles them into the single published `choirmaster` package.
 
 ```
 .choirmaster/
 ├─ manifest.ts            # typed defineProject({...})
-├─ prompts/               # planner.md, implementer.md, reviewer.md
+├─ prompts/               # planner.md, plan-reviewer.md, implementer.md, reviewer.md
 ├─ plans/
-│  └─ 2026-05-foo.md      # plan input
+│  ├─ 2026-05-foo.md      # human-authored plan input
+│  └─ 2026-05-foo.tasks.json  # generated execution contract
 └─ runs/<run-id>/         # per-run state, logs (gitignored)
 ```
 
 ## Install
 
 ```bash
-# global CLI
-npm install -g choirmaster
-
-# in your project, so manifest.ts can resolve `import { ... } from 'choirmaster'`
+# recommended: project-local CLI + manifest types
 npm install --save-dev choirmaster
+
+# optional: global CLI for convenience
+npm install -g choirmaster
 ```
 
-You also need the `claude` CLI installed and authenticated. ChoirMaster shells out to it.
+If you install globally, still add ChoirMaster to the project as a dev dependency so `.choirmaster/manifest.ts` can resolve `import { ... } from 'choirmaster'`. If you install only in the project, use `npx choirmaster ...`.
+
+You also need the `claude` CLI installed and authenticated. The bundled Claude adapter shells out to it.
 
 ## Quickstart
 
@@ -82,7 +87,7 @@ choirmaster init
 # into a validated tasks file, the runtime executes it
 choirmaster run .choirmaster/plans/example.md
 
-# alternatively: just plan, review the generated tasks.json, then run
+# alternatively: just plan, review the generated tasks file, then run
 choirmaster plan .choirmaster/plans/example.md
 choirmaster run .choirmaster/plans/example.tasks.json
 
@@ -96,8 +101,12 @@ choirmaster run .choirmaster/plans/example.md --continue-on-blocked
 choirmaster run .choirmaster/plans/example.md --no-auto-merge
 ```
 
-### Coming soon
+### Where it's going
 
+- Plan authoring help: templates, `doctor`, or an interactive plan writer that helps turn rough intent into a strong markdown plan
+- Plan reviewer loop: a second agent reviews the generated task contract before execution
+- Safer plan-level branch flow, likely `current branch -> plan branch -> task branches -> plan branch`
+- Daily workflow commands: `status`, `logs`, `inspect`, `retry`, and `reset`
 - `choirmaster run --issue N` - GitHub issue input feeding the same planner pipeline
 - Per-role engine flags (`--implementer codex`, `--reviewer claude:opus`)
 - `--sandbox docker` for hard isolation
@@ -123,7 +132,7 @@ pnpm typecheck
 
 ## Acknowledgments
 
-ChoirMaster grew out of a local orchestrator I built for CoreHue to run multi-step coding work while I was away from the keyboard.
+ChoirMaster grew out of a local orchestrator I built for [CoreHue](https://corehue.co) to run multi-step coding work while I was away from the keyboard.
 
 It is also shaped by ideas from agent orchestration work such as [Sandcastle](https://github.com/mattpocock/sandcastle), [LangGraph](https://github.com/langchain-ai/langgraph), [Self-Refine](https://arxiv.org/abs/2303.17651), and Anthropic's [agent/sub-agent patterns](https://docs.claude.com/en/api/agent-sdk/overview). ChoirMaster's focus is deliberately narrow: turn a reviewed task plan into gated, scoped, resumable commits in a local repo.
 

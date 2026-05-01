@@ -18,20 +18,25 @@ ChoirMaster should help the user write a good plan, not just execute one.
 
 The markdown plan is the human authoring surface. The `*.tasks.json` is the generated execution contract; the runtime owns it, the user does not have to.
 
-### Target for 0.3.x
+### 0.3.0 Baseline
 
-- Single-package install (`npm install -g choirmaster`).
+- Single-package install: global CLI (`npm install -g choirmaster`) or project dev dependency (`npm install -D choirmaster` with `npx choirmaster`).
 - Markdown-first: `choirmaster run <plan.md>` is the primary path; `<tasks.json>` is the advanced/debug surface.
 - Visible self-dogfood config in this repo (`.choirmaster/`), proving the runtime against itself.
 - Sandbox prepare hook for real worktrees (e.g. `pnpm install --frozen-lockfile`).
+
+### Near-Term 0.3.x Direction
+
 - Plan authoring help: templates, `doctor`, or an interactive plan writer that turns rough intent into a reviewable plan.
 - Safe default branch behavior decided and documented: most likely a plan-level flow (`current branch -> plan branch -> task branches -> plan branch`) so a random first run never mutates `main` by surprise.
 
 ## Current Reality
 
-Today, ChoirMaster runs authored task files. A user writes a `*.tasks.json` file that describes each unit of work, including allowed paths, forbidden paths, gates, branch, worktree, and definition of done.
+Today, ChoirMaster is markdown-first for normal use. A user can run `choirmaster run <plan.md>` and the planner turns that markdown into a validated `*.tasks.json` execution contract before the runtime starts.
 
-The planner flow is the next release blocker. Markdown plans should compile into task files, and GitHub issues should later feed the same planner pipeline. The executable artifact remains the task contract, but the human authoring surface should become markdown.
+Users can also run `choirmaster plan <plan.md>` to generate the task file without executing it, then inspect or edit the generated contract before running `choirmaster run <tasks.json>`. The task file is still deliberately readable, but it is no longer the primary thing a new user should have to author by hand.
+
+The plan-reviewer loop and GitHub issue planning are still future work. GitHub issues should eventually feed the same markdown-to-task pipeline rather than creating a second planning system.
 
 The runtime is already shaped around role-specific agents: planner, plan reviewer, implementer, and reviewer. Claude is the first bundled adapter, but the product goal is that any supported provider can fill any role.
 
@@ -103,20 +108,17 @@ These are no longer roadmap items, but they shape the remaining work:
 - Markdown planner: `choirmaster plan <plan.md>` and `choirmaster run <plan.md>` decompose a markdown plan into a validated tasks file. Mutation guard refuses any planner edit outside `.choirmaster/plan-output.json`, including changes to gitignored files matching `forbiddenPaths`.
 - Sandbox prepare hook: `worktreeSandbox({ prepare: { command: 'pnpm install --frozen-lockfile' } })` runs once per fresh worktree before any agent turn. Prepare failure blocks the task immediately instead of consuming implementer attempts.
 - Duplicate gate-failure detection: two consecutive attempts with the same normalized failure signature block the task instead of burning the rest of the retry budget on an environment problem.
-- First successful self-dogfood: ChoirMaster ran a markdown plan against its own repo, generated tasks, ran sandbox prepare, passed `pnpm typecheck` / `pnpm test` / `pnpm build` gates, and merged a docs PR onto `main`.
+- First successful self-dogfood: ChoirMaster ran a markdown plan against its own repo, generated tasks, ran sandbox prepare, passed `pnpm typecheck` / `pnpm test` / `pnpm build` gates, and merged a docs task branch onto `main`.
 
 ## Phase 0: Finish the Trust Core
 
-Goal: make the runtime safe enough to dogfood on ChoirMaster itself.
+Goal: keep the state machine safe, recoverable, and regression-tested as real dogfood uncovers edge cases.
 
 Remaining work:
 
-- Verify and test resumable final-verify handling.
-- Add focused resume tests for implementer, gate, reviewer, implementer-fix, final-verify, and killed-process paths.
-- Add validation for `*.tasks.json` before a run starts.
-- Dogfood ChoirMaster on this repository with small documentation and CLI tasks.
-- Continue tightening blocked and resume messages as new failure modes appear.
 - Preflight + diagnostics layer: distinguish capacity, missing CLI auth, offline network, DNS/API failure, and true timeout. Today several of these collapse into generic "no output" or "timeout" behaviour, which is confusing when a user comes back to a paused run AFK. The runtime should classify each failure mode and surface the right remediation (re-auth, reconnect, reset, retry, wait).
+- Continue tightening blocked and resume messages as new failure modes appear.
+- Keep adding focused state-machine regression tests whenever a resume, gate, reviewer, sandbox, or planner guard bug is found.
 
 Success criteria:
 
@@ -127,17 +129,20 @@ Success criteria:
 
 ## Phase 1: Daily Local Use
 
-Goal: make the current CLI surface excellent for real local work.
+Goal: make the markdown-first CLI surface excellent for real local work.
 
 Core commands:
 
 - `choirmaster init`
-- `choirmaster run <tasks.json>`
+- `choirmaster run <plan.md>`
+- `choirmaster plan <plan.md>`
+- `choirmaster run <tasks.json>` as the advanced/debug path
 - `choirmaster run --resume <run-id>`
 
 Needed polish:
 
-- Clear task schema documentation.
+- Clear plan authoring guidance, with examples of good and bad plans.
+- Clear task schema documentation for users who want to inspect or edit generated contracts.
 - Examples for TypeScript, Python, Rails, and generic shell-gated projects.
 - Better log layout and run summaries.
 - Strong defaults in the scaffolded manifest.
@@ -146,22 +151,22 @@ Needed polish:
 
 Success criteria:
 
-- A solo engineer can install ChoirMaster globally, initialize any repo, author a task file, and run a small real task safely.
+- A solo engineer can install ChoirMaster globally or as a project dev dependency, initialize any repo, write a small markdown plan, and run a real task safely without learning the task-file schema first.
 
 ## Phase 2: Markdown-First Planner Pipeline
 
-Goal: turn human markdown plans into executable task contracts.
+Goal: make markdown plans high-quality, reviewable inputs rather than just accepted inputs.
 
-This phase is a release blocker for the next public package. ChoirMaster should not ask new users to hand-author JSON as the primary path.
+The first markdown planner is shipped in `0.3.0`. The remaining work is to make plan generation safer, more helpful, and easier to review before execution.
 
 This phase has two separable shippables.
 
-### Phase 2A: Markdown Planner
+### Phase 2A: Markdown Planner (Shipped in 0.3.0)
 
 - `choirmaster plan <plan.md>`
 - `choirmaster run <plan.md>` as the main user-facing workflow.
 - Planner agent decomposes a markdown plan into `*.tasks.json`.
-- User reviews or edits the generated task file before execution.
+- User can review or edit the generated task file before execution.
 - Task files remain conservative, readable, and hand-editable.
 - The planner role uses the same provider-agnostic `Agent` interface as implementer and reviewer roles.
 
@@ -283,10 +288,10 @@ Role and model flexibility:
 - CLI overrides for temporary model swaps without editing `manifest.ts`.
 - Clear logs that show which engine and model handled each role and phase.
 
-Packages and integrations:
+Adapters and integrations:
 
-- Mature `@choirmaster/agent-claude`.
-- Add `@choirmaster/agent-codex`.
+- Mature the built-in Claude adapter.
+- Add a Codex adapter.
 - Support custom agent adapters through the public `Agent` interface.
 - Prompt packs for common review styles.
 - Framework presets for common project types.
@@ -305,9 +310,9 @@ Trust in ChoirMaster depends on testing the state machine, not just helper funct
 
 Short term:
 
-- Unit-test task-file validation, scope checking, handoff validation, review validation, branch-policy outcomes, and limit resolution.
-- Add state-machine tests for resume paths with mocked agents and gates.
-- Add fixtures for capacity pause, killed process, scope violation, gate failure, reviewer block, final-verify, and branch-policy conflict.
+- Keep unit coverage strong for task-file validation, scope checking, handoff validation, review validation, branch-policy outcomes, and limit resolution.
+- Expand state-machine tests for resume paths with fake agents, real temp git repos, and real shell gates.
+- Add or preserve fixtures for capacity pause, killed process, scope violation, gate failure, reviewer block, final-verify, planner mutation guards, and branch-policy conflict.
 
 Medium term:
 
@@ -338,9 +343,10 @@ Phase names are product capability phases, not exact package versions. Published
 
 Suggested release milestones:
 
-- `0.2.x`: Trust core complete enough to dogfood: final-verify resume fixed, task-file validation, resume tests, and ChoirMaster dogfooding.
-- `0.3.x`: Single-package install plus markdown-first planning: `choirmaster run <plan.md>` compiles a markdown plan into a validated task file and runs it.
-- `0.4.x`: Daily local use polished: schema docs, examples, better logs, status/logs/inspect basics.
+- `0.2.x`: Trust core stabilized enough to dogfood: final-verify resume fixed, task-file validation, resume tests, and safer runtime guardrails.
+- `0.3.0`: Single-package install plus markdown-first planning: `choirmaster run <plan.md>` compiles a markdown plan into a validated task file and runs it.
+- `0.3.x`: Plan authoring help, safer branch defaults, and polish discovered through continued self-dogfood.
+- `0.4.x`: Daily local use polished: plan/task docs, examples, better logs, status/logs/inspect basics.
 - `0.5.x`: GitHub/team workflow: issue input, PR creation, comment summaries.
 - `0.6.x`: Hard guardrails: Docker sandbox and stricter permission profiles.
 - `1.0.0`: Stable task schema, stable config API, reliable resume semantics, documented recovery workflow, and enough dogfooding history to trust the runtime.
@@ -366,9 +372,9 @@ This checklist is expected to become true around the end of Phase 3, not Phase 1
 The order matters:
 
 1. State machine correctness.
-2. Local run ergonomics.
-3. Markdown-first planner pipeline.
-4. Daily workflow commands.
+2. Markdown-first authoring.
+3. Local run ergonomics and recovery commands.
+4. Plan-level branch flow.
 5. GitHub/team integration.
 6. Hard sandboxing and stronger guardrails.
 7. Broader agent ecosystem.
