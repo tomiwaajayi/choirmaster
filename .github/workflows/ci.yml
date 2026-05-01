@@ -9,6 +9,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+
     steps:
       - uses: actions/checkout@v4
 
@@ -28,3 +33,36 @@ jobs:
       - run: pnpm build
 
       - run: pnpm test
+
+      - name: Smoke test packed package
+        run: |
+          set -euo pipefail
+
+          cd packages/cli
+          pack_dir="$(mktemp -d)"
+          tarball="$(npm pack --silent --pack-destination "$pack_dir")"
+          tarball_path="$pack_dir/$tarball"
+          tar -tf "$tarball_path" > "$pack_dir/files.txt"
+
+          grep -Fxq "package/package.json" "$pack_dir/files.txt"
+          grep -Fxq "package/README.md" "$pack_dir/files.txt"
+          grep -Fxq "package/LICENSE" "$pack_dir/files.txt"
+          grep -Fxq "package/dist/cli.js" "$pack_dir/files.txt"
+          grep -Fxq "package/dist/index.js" "$pack_dir/files.txt"
+          grep -Fxq "package/dist/index.d.ts" "$pack_dir/files.txt"
+
+          tar -xOf "$tarball_path" package/package.json > "$pack_dir/package.json"
+          PACKED_PACKAGE_JSON="$pack_dir/package.json" node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs'
+
+          const pkg = JSON.parse(readFileSync(process.env.PACKED_PACKAGE_JSON, 'utf8'))
+          if (pkg.name !== 'choirmaster') {
+            throw new Error(`expected packed package name choirmaster, got ${pkg.name}`)
+          }
+
+          const runtimeDeps = Object.keys(pkg.dependencies ?? {})
+          const leakedWorkspaceDeps = runtimeDeps.filter((name) => name.startsWith('@choirmaster/'))
+          if (leakedWorkspaceDeps.length > 0) {
+            throw new Error(`packed package has scoped runtime deps: ${leakedWorkspaceDeps.join(', ')}`)
+          }
+          NODE
