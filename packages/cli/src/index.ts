@@ -69,6 +69,13 @@ export async function main(argv: string[]): Promise<number> {
     reset: 'Reset blocked tasks in a run',
   }
 
+  if (command === 'init') {
+    const { initCommand } = await import('./commands/init.js')
+    return initCommand({
+      force: args.includes('--force') || args.includes('-f'),
+    })
+  }
+
   if (command === 'run') {
     const { runCommand } = await import('./commands/run.js')
     const tasksFile = args[1]
