@@ -22,9 +22,10 @@
   "scripts": {
     "build": "tsup",
     "postbuild": "node -e \"import('node:fs').then(m=>m.chmodSync('dist/cli.js',0o755))\"",
+    "prepack": "node scripts/copy-package-files.mjs",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "rm -rf dist *.tsbuildinfo"
+    "clean": "rm -rf dist README.md LICENSE *.tsbuildinfo"
   },
   "repository": {
     "type": "git",

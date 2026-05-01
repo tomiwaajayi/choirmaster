@@ -6,6 +6,11 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Synced into packages/cli/ at prepack time from the repo root; tracked
+# only at the root to prevent drift between root and published copies.
+packages/cli/README.md
+packages/cli/LICENSE
+
 # Logs
 *.log
 npm-debug.log*
