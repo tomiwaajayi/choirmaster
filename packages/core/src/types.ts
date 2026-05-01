@@ -78,6 +78,15 @@ export interface Task {
   max_attempts?: number
   review_iterations: number
   /**
+   * Reviewer iterations that ran a complete cycle (reviewer call returned
+   * AND, on BLOCKED, the implementer fix + scope + gates evaluated).
+   * Differs from `review_iterations` (which counts iterations *started*)
+   * when an iteration is interrupted mid-call. Resume uses
+   * `completed_review_iterations + 1` so a kill during the final allowed
+   * iter doesn't immediately exhaust the cap on resume.
+   */
+  completed_review_iterations?: number
+  /**
    * Maximum reviewer iterations for this task. Optional - falls back to
    * `ProjectConfig.limits.maxReviewIterations` then the built-in default.
    */

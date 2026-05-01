@@ -265,7 +265,6 @@ export async function runTask(
       task,
       cwd,
       previousLastSummary || `${task.title}`,
-      previousReviewIterations,
       previousLastReviewIssues,
       logger,
     )
@@ -390,9 +389,13 @@ export async function runTask(
     // All green. Cycle complete; mark and move to reviewer.
     markAttemptCompleted()
     logger.block(`GATES PASSED (attempt ${attempt})`, 'All deterministic checks green.')
+    // Fresh reviewer phase for this attempt - reset both started and
+    // completed iter counters so resume into reviewer for THIS attempt
+    // doesn't see stale values from a prior failed attempt.
     task.review_iterations = 0
+    task.completed_review_iterations = 0
     saveState(ctx.runDir, state)
-    const review = await runReviewerLoop(ctx, state, task, cwd, lastSummary, 0, '', logger)
+    const review = await runReviewerLoop(ctx, state, task, cwd, lastSummary, '', logger)
     return handlePostReview(ctx, state, task, sandboxHandle, logger, review, lastSummary, options)
   }
 
@@ -415,12 +418,15 @@ export async function runReviewerLoop(
   task: Task,
   cwd: string,
   implementerSummary: string,
-  previousReviewIterations: number,
   previousLastReviewIssues: string,
   logger: TaskLogger,
 ): Promise<ReviewerOutcome> {
   const maxReviewIterations = resolveMaxReviewIterations(task, ctx.config)
-  const startIter = previousReviewIterations > 0 ? previousReviewIterations + 1 : 1
+  // Resume from the next un-completed iter. `completed_review_iterations`
+  // only advances at terminal points (cycle done); an interrupt mid-iter
+  // leaves it where it was so the same iter is redone, not skipped.
+  const previousCompletedIters = task.completed_review_iterations ?? 0
+  const startIter = previousCompletedIters + 1
   if (startIter > maxReviewIterations) {
     task.blocked_reason = `Max review iterations (${maxReviewIterations}) already exhausted.`
     return 'blocked'
@@ -433,6 +439,14 @@ export async function runReviewerLoop(
     task.review_iterations = iter
     saveState(ctx.runDir, state)
 
+    // Helper: a reviewer iteration is "completed" only at a terminal
+    // exit point (continue or fall-through-to-next-iter). An interrupt
+    // anywhere before this marker leaves the iter unspent on resume.
+    const markIterCompleted = (): void => {
+      task.completed_review_iterations = iter
+      saveState(ctx.runDir, state)
+    }
+
     const reviewerRun = await invokeReviewer(ctx, task, cwd, runningSummary, iter, logger)
     if (reviewerRun.capacityHit) {
       pauseForCapacity(ctx, state, task, logger, 'reviewer', reviewerRun.capacitySignal ?? 'capacity hit', `iter ${iter}`)
@@ -443,6 +457,7 @@ export async function runReviewerLoop(
     if (!reviewResult.data) {
       const why = reviewResult.reason ?? 'no review file written'
       logger.line(`Reviewer iter ${iter}: ${why}. Treating as BLOCKED.`)
+      markIterCompleted()
       continue
     }
     const review = reviewResult.data
@@ -485,6 +500,7 @@ export async function runReviewerLoop(
     if (!fixResult.data) {
       const why = fixResult.reason ?? 'no handoff file written'
       logger.line(`Implementer fix iter ${iter}: ${why}. Will retry next iter.`)
+      markIterCompleted()
       continue
     }
     const fixHandoff = fixResult.data
@@ -525,6 +541,10 @@ export async function runReviewerLoop(
       task.blocked_reason = `Deterministic gates failed after reviewer fix iter ${iter}.`
       return 'blocked'
     }
+
+    // Cycle complete: reviewer + fix + scope + gates all evaluated
+    // successfully. Loop continues to iter K+1.
+    markIterCompleted()
   }
 
   // Final-verify pass: the for loop exhausted iterations but the most recent
