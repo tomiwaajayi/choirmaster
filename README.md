@@ -52,22 +52,17 @@ Three layers:
 
 ## Install
 
-Once published to npm:
-
 ```bash
 npm install -g @choirmaster/cli
 ```
 
-For now (pre-publish), clone and link:
+Then in your project:
 
 ```bash
-git clone https://github.com/tomiwaajayi/choirmaster.git
-cd choirmaster
-pnpm install
-pnpm build
-pnpm link --global --filter @choirmaster/cli
-choirmaster --version
+npm install --save-dev @choirmaster/core @choirmaster/agent-claude
 ```
+
+You also need the `claude` CLI installed and authenticated. ChoirMaster shells out to it.
 
 ## Quickstart
 
@@ -114,11 +109,9 @@ pnpm typecheck
 
 ## Acknowledgments
 
-ChoirMaster started as a hand-built orchestrator I used on my own codebase to drive a real multi-PR migration: state machine, retry caps, scope enforcement, capacity-aware resume, auto-merge with conflict abort, final-verify pass. After that runtime was working end-to-end, I came across [Matt Pocock's sandcastle](https://github.com/mattpocock/sandcastle) and noted a few nice-to-haves worth folding in over time - notably its three-mode framing for branch policies (head-only / per-task / named), prompt files with template substitution, and idle-timeout via stream parsing.
+ChoirMaster grew out of a local orchestrator I built for CoreHue to run multi-step coding work while I was away from the keyboard.
 
-The pluggable-agent and pluggable-sandbox shapes are widespread industry patterns expressed in many places (LangChain, AutoGen, CrewAI, Anthropic's Agent SDK all carry them); ChoirMaster expresses them with its own API surface. The two projects also take opposite stances: sandcastle ships a `run()` primitive and expects you to write the orchestrator; ChoirMaster ships the orchestrator and expects you to write the plan.
-
-Other influences include multi-agent-debate and [Self-Refine](https://arxiv.org/abs/2303.17651) literature for the implementer / reviewer / final-verify loop, [LangGraph](https://github.com/langchain-ai/langgraph) for graph-based agent orchestration, and Anthropic's [Claude Agent SDK + Sub-agents](https://docs.claude.com/en/api/agent-sdk/overview) for the role decomposition pattern.
+It is also shaped by ideas from agent orchestration work such as [Sandcastle](https://github.com/mattpocock/sandcastle), [LangGraph](https://github.com/langchain-ai/langgraph), [Self-Refine](https://arxiv.org/abs/2303.17651), and Anthropic's [agent/sub-agent patterns](https://docs.claude.com/en/api/agent-sdk/overview). ChoirMaster's focus is deliberately narrow: turn a reviewed task plan into gated, scoped, resumable commits in a local repo.
 
 ## License
 

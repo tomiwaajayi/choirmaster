@@ -60,6 +60,15 @@ export interface Task {
 
   // Runtime mutable state (preserved across orchestrator runs for resume).
   attempts: number
+  /**
+   * Attempts that ran a complete check cycle (impl call returned, handoff
+   * processed, scope + gates evaluated). Differs from `attempts` when an
+   * attempt is interrupted mid-call - capacity pause or kill - because
+   * those don't consume retry budget. The resume start point is
+   * `completed_attempts + 1`, NOT `attempts + 1`, so an interrupt on the
+   * final allowed attempt doesn't render the task unrecoverable.
+   */
+  completed_attempts?: number
   max_attempts: number
   review_iterations: number
   max_review_iterations: number

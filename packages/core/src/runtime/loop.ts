@@ -189,11 +189,13 @@ export async function runTask(
   let lastFailureSummary = ''
   let lastSummary = previousLastSummary
 
-  // If a previous attempt was started (counter > 0), advance past it.
-  // Don't gate this on previousStatus: a saved waiting_for_capacity or
-  // in_progress task here means resume, and the counter must be honored
-  // regardless of how the task ended up that way.
-  const startAttempt = previousAttempts > 0 ? previousAttempts + 1 : 1
+  // Resume from the next un-completed attempt. `completed_attempts` only
+  // advances when an attempt ran a full cycle (impl call returned, handoff
+  // processed, scope + gates evaluated). An interrupt - capacity pause or
+  // kill - leaves it where it was, so a paused task on its final allowed
+  // attempt resumes onto that same attempt rather than blocking past max.
+  const previousCompleted = task.completed_attempts ?? 0
+  const startAttempt = previousCompleted + 1
   if (startAttempt > task.max_attempts) {
     return blockTask(
       ctx,
@@ -208,16 +210,32 @@ export async function runTask(
     task.attempts = attempt
     saveState(ctx.runDir, state)
 
-    const mode: ImplementerMode = attempt === 1 ? 'INITIAL_IMPLEMENTATION' : 'FIX_CHECK_FAILURES'
-    const extra = attempt === 1
-      ? 'Implement the spec end-to-end; self-review your diff before writing the handoff file.'
-      : `Previous attempt failed deterministic checks. Failure output:\n\n${lastFailureSummary || '(see logs)'}`
+    // Mode reflects history: INITIAL when no prior attempt has completed
+    // a full cycle (incl. resumed-from-killed-first-attempt), else
+    // FIX_CHECK_FAILURES so the implementer knows to read the failure
+    // context. previousCompleted is read once at runTask entry; within
+    // the loop, completed_attempts increments after each cycle.
+    const haveCompletedPriorAttempt = (task.completed_attempts ?? 0) > 0
+    const mode: ImplementerMode = haveCompletedPriorAttempt
+      ? 'FIX_CHECK_FAILURES'
+      : 'INITIAL_IMPLEMENTATION'
+    const extra = haveCompletedPriorAttempt
+      ? `Previous attempt failed deterministic checks. Failure output:\n\n${lastFailureSummary || '(see logs)'}`
+      : 'Implement the spec end-to-end; self-review your diff before writing the handoff file.'
 
     const claude = await invokeImplementer(ctx, task, cwd, mode, extra, attempt, logger)
 
     if (claude.capacityHit) {
+      // Interrupt: don't mark this attempt as completed. Resume will
+      // re-enter at the same attempt number with the same mode.
       return pauseForCapacity(ctx, state, task, logger, 'implementer', claude.capacitySignal ?? 'capacity hit', `attempt ${attempt}`)
     }
+
+    // The impl call returned cleanly. Whatever happens next (handoff
+    // missing, BLOCKED, scope violation, gate failure, success), this
+    // attempt has run a full cycle and counts toward the retry budget.
+    task.completed_attempts = attempt
+    saveState(ctx.runDir, state)
 
     const handoffResult = readHandoff(cwd, task.id)
     if (!handoffResult.data) {
