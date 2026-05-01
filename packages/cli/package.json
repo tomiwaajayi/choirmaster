@@ -38,7 +38,8 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@choirmaster/core": "workspace:*"
+    "@choirmaster/core": "workspace:*",
+    "tsx": "^4.21.0"
   },
   "publishConfig": {
     "access": "public"

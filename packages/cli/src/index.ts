@@ -69,6 +69,21 @@ export async function main(argv: string[]): Promise<number> {
     reset: 'Reset blocked tasks in a run',
   }
 
+  if (command === 'run') {
+    const { runCommand } = await import('./commands/run.js')
+    const tasksFile = args[1]
+    if (!tasksFile) {
+      process.stderr.write('Usage: choirmaster run <tasks.json> [--continue-on-blocked] [--reuse-worktree] [--no-auto-merge]\n')
+      return 64
+    }
+    return runCommand({
+      tasksFile,
+      continueOnBlocked: args.includes('--continue-on-blocked'),
+      reuseWorktree: args.includes('--reuse-worktree'),
+      skipAutoMerge: args.includes('--no-auto-merge'),
+    })
+  }
+
   if (command && command in KNOWN) {
     process.stderr.write(`choirmaster: '${command}' is not yet implemented (pre-alpha).\n`)
     process.stderr.write(`             ${KNOWN[command]}\n`)
