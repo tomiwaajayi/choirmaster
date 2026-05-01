@@ -1,14 +1,18 @@
 {
   "name": "@choirmaster/cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "ChoirMaster CLI - drive agentic-coding plans to committed work",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "choirmaster": "./dist/cli.js"
+    "choirmaster": "dist/cli.js"
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "postbuild": "node -e \"import('node:fs').then(m=>m.chmodSync('dist/cli.js',0o755))\"",
@@ -21,7 +25,14 @@
     "url": "git+https://github.com/tomiwaajayi/choirmaster.git",
     "directory": "packages/cli"
   },
-  "keywords": ["ai", "coding-agent", "claude", "codex", "orchestrator", "automation"],
+  "keywords": [
+    "ai",
+    "coding-agent",
+    "claude",
+    "codex",
+    "orchestrator",
+    "automation"
+  ],
   "license": "MIT",
   "engines": {
     "node": ">=20"

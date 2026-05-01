@@ -1,6 +1,6 @@
 {
   "name": "@choirmaster/agent-claude",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Claude Code agent for ChoirMaster. Drives `claude -p` headless turns with streaming tool-call visibility and capacity-aware error handling.",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,7 +11,11 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -22,7 +26,13 @@
     "url": "git+https://github.com/tomiwaajayi/choirmaster.git",
     "directory": "packages/agent-claude"
   },
-  "keywords": ["choirmaster", "claude", "claude-code", "ai", "coding-agent"],
+  "keywords": [
+    "choirmaster",
+    "claude",
+    "claude-code",
+    "ai",
+    "coding-agent"
+  ],
   "license": "MIT",
   "engines": {
     "node": ">=20"
