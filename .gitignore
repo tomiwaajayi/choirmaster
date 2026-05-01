@@ -33,6 +33,11 @@ coverage/
 # Runtime artifacts (per-project, see template/)
 .choirmaster/runs/
 
+# Generated task files (planner output). The markdown plan is the input
+# of record; the .tasks.json next to it is regenerated each run. Force
+# with `git add -f` to pin a specific generated tasks file.
+.choirmaster/plans/*.tasks.json
+
 # Env
 .env
 .env.*

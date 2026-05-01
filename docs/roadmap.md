@@ -81,6 +81,12 @@ These are no longer roadmap items, but they shape the remaining work:
 - Reviewer iterations distinguish started from completed work via `completed_review_iterations`.
 - Retry caps can come from task overrides, manifest limits, or built-in defaults.
 - README and CLI help now describe the implemented surface rather than planned commands.
+- Single published `choirmaster` package: CLI, runtime, and Claude adapter bundled into one install.
+- `*.tasks.json` validation runs before any task starts, with cycle detection and unsafe-path rejection.
+- Markdown planner: `choirmaster plan <plan.md>` and `choirmaster run <plan.md>` decompose a markdown plan into a validated tasks file. Mutation guard refuses any planner edit outside `.choirmaster/plan-output.json`, including changes to gitignored files matching `forbiddenPaths`.
+- Sandbox prepare hook: `worktreeSandbox({ prepare: { command: 'pnpm install --frozen-lockfile' } })` runs once per fresh worktree before any agent turn. Prepare failure blocks the task immediately instead of consuming implementer attempts.
+- Duplicate gate-failure detection: two consecutive attempts with the same normalized failure signature block the task instead of burning the rest of the retry budget on an environment problem.
+- First successful self-dogfood: ChoirMaster ran a markdown plan against its own repo, generated tasks, ran sandbox prepare, passed `pnpm typecheck` / `pnpm test` / `pnpm build` gates, and merged a docs PR onto `main`.
 
 ## Phase 0: Finish the Trust Core
 
