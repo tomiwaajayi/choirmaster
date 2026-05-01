@@ -1,6 +1,6 @@
 {
   "name": "@choirmaster/agent-claude",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "description": "Claude Code agent for ChoirMaster (internal). Bundled into the published `choirmaster` package; do not depend on this directly.",
   "private": true,
   "type": "module",

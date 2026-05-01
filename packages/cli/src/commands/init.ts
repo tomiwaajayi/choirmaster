@@ -1,10 +1,11 @@
 /**
  * `choirmaster init`
  *
- * Scaffolds `.choirmaster/` in the current repo: typed manifest, prompt files
- * for implementer + reviewer, an example plan, and a `.gitignore` entry for
- * the per-run state directory. Refuses to overwrite an existing
- * `.choirmaster/` unless `--force` is passed.
+ * Scaffolds `.choirmaster/` in the current repo: typed manifest, prompt
+ * files for planner, plan reviewer, implementer, and reviewer, an example
+ * markdown plan, an example tasks file, and a `.gitignore` entry for the
+ * per-run state directory. Refuses to overwrite an existing `.choirmaster/`
+ * unless `--force` is passed.
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -50,7 +51,8 @@ export async function initCommand(args: InitCommandArgs = {}): Promise<number> {
   process.stdout.write(`  .choirmaster/plans/example.md\n`)
   process.stdout.write(`  .choirmaster/plans/example.tasks.json\n`)
   process.stdout.write(`\nNext steps:\n`)
-  process.stdout.write(`  1. Add choirmaster as a project dev dependency so manifest.ts resolves locally:\n`)
+  process.stdout.write(`  1. Add choirmaster as a project dev dependency so manifest.ts resolves locally.\n`)
+  process.stdout.write(`     Do this even if you also installed the CLI globally:\n`)
   process.stdout.write(`     npm install --save-dev choirmaster\n`)
   process.stdout.write(`  2. Make sure the 'claude' CLI is installed and authenticated:\n`)
   process.stdout.write(`     claude --version\n`)

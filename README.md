@@ -34,7 +34,7 @@ Solo developers, indie hackers, and small teams running scoped docs work, tests,
 - **Project-wide safeguards.** `forbiddenPaths` and `strictInstructions` declared once in your manifest apply to every task: `.env*` always blocked, "never run pnpm install" always in the prompt.
 - **Deterministic gates.** Typecheck, test, audit scripts run after every implementer turn. Failures route back to the implementer with the failure summary; the reviewer never sees broken code.
 - **Sandbox prepare hook.** Fresh worktrees can run setup once before any agent turn, e.g. `pnpm install --frozen-lockfile`, so real project gates have dependencies available.
-- **Setup diagnostics.** `choirmaster doctor` checks the repo, manifest, branch, prompts, agents, gates, sandbox, gitignore, and network basics before you spend a model turn.
+- **Setup diagnostics.** `choirmaster doctor` checks the repo, manifest, branch, prompts, agents, gates, sandbox, gitignore, and Anthropic DNS before you spend a model turn.
 - **Recoverable everywhere.** Hit Claude's rate limit mid-run? The orchestrator pauses cleanly and resumes from the same phase on the next run. Killed the process? `choirmaster run --resume <run-id>` picks up where it left off.
 - **Configurable branch policy.** Completed tasks can merge into the base branch, fast-forward the base, or stay on task branches for manual review.
 - **Per-task git worktrees.** Tasks never touch your main checkout. Inspect any task's branch independently.
@@ -63,20 +63,32 @@ The repo is a pnpm workspace with internal modules (`packages/core`, `packages/a
 ## Install
 
 ```bash
-# recommended: project-local CLI + manifest types
+# project-local install (recommended so manifest.ts can import from choirmaster)
 npm install --save-dev choirmaster
+pnpm add --save-dev choirmaster
+yarn add --dev choirmaster
 
-# optional: global CLI for convenience
+# optional global CLI for convenience
 npm install -g choirmaster
+pnpm add -g choirmaster
+yarn global add choirmaster
 ```
 
-If you install globally, still add ChoirMaster to the project as a dev dependency so `.choirmaster/manifest.ts` can resolve `import { ... } from 'choirmaster'`. If you install only in the project, use `npx choirmaster ...`.
+If you install globally, still add ChoirMaster to the project as a dev dependency so `.choirmaster/manifest.ts` can resolve `import { ... } from 'choirmaster'`.
 
-Every command can be run as `choirmaster` or the shorter `cm` alias.
+Every command is exposed as both `choirmaster` and the shorter `cm` alias. If you only install project-locally, run through your package manager:
+
+```bash
+npx choirmaster --help
+pnpm exec choirmaster --help
+yarn choirmaster --help
+```
 
 You also need the `claude` CLI installed and authenticated. The bundled Claude adapter shells out to it.
 
 ## Quickstart
+
+The examples below use `choirmaster`. Use `cm` for the shorter alias, or prefix with `npx`, `pnpm exec`, or `yarn` if you installed only in the project.
 
 ```bash
 # scaffold .choirmaster/ in your project
@@ -88,6 +100,9 @@ choirmaster init
 
 # check your setup before invoking an agent
 choirmaster doctor
+
+# skip DNS checks when offline or behind restricted network policy
+choirmaster doctor --skip-network
 
 # plan-then-run from a markdown plan: the planner agent compiles it
 # into a validated tasks file, the runtime executes it

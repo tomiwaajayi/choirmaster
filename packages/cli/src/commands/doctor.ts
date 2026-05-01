@@ -3,7 +3,7 @@ import { lookup } from 'node:dns/promises'
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
-import { currentBranch, git, type AgentRoles, type ProjectConfig } from '@choirmaster/core'
+import { currentBranch, git, type AgentRoles, type ProjectConfig, type ProjectPrompts } from '@choirmaster/core'
 import type { Agent } from '@choirmaster/core'
 
 import { loadManifest } from '../manifest.js'
@@ -16,16 +16,36 @@ interface DoctorCheck {
   detail: string
 }
 
+interface CommandResult {
+  status: number | null
+  stdout?: string | Buffer
+  stderr?: string | Buffer
+  error?: Error
+}
+
+type CommandRunner = (
+  command: string,
+  args: string[],
+  options: { cwd?: string; encoding: 'utf8'; timeout?: number },
+) => CommandResult
+
+type LookupHost = (host: string) => Promise<unknown>
+
 export interface DoctorCommandArgs {
   cwd?: string
+  skipNetwork?: boolean
+  commandRunner?: CommandRunner
+  lookupHost?: LookupHost
 }
 
 export async function doctorCommand(args: DoctorCommandArgs = {}): Promise<number> {
   const projectRoot = resolve(args.cwd ?? process.cwd())
+  const commandRunner = args.commandRunner ?? runCommand
+  const lookupHost = args.lookupHost ?? ((host: string) => lookup(host))
   const checks: DoctorCheck[] = []
 
   checks.push(checkNodeVersion())
-  checks.push(checkGitBinary(projectRoot))
+  checks.push(checkGitBinary(projectRoot, commandRunner))
 
   const repo = git(['rev-parse', '--show-toplevel'], projectRoot)
   if (repo.status !== 0) {
@@ -66,8 +86,11 @@ export async function doctorCommand(args: DoctorCommandArgs = {}): Promise<numbe
     checks.push(checkBaseBranch(projectRoot, config))
     checks.push(...checkPrompts(projectRoot, config))
     checks.push(...checkAgents(config))
-    checks.push(...await checkAgentCLIs(config))
-    checks.push(...await checkNetwork(config))
+    checks.push(...await checkAgentCLIs(config, commandRunner))
+    checks.push(...await checkNetwork(config, {
+      lookupHost,
+      skipNetwork: args.skipNetwork ?? false,
+    }))
     checks.push(...checkGates(config))
     checks.push(checkBranchPolicy(config))
     checks.push(checkSandbox(config))
@@ -78,6 +101,8 @@ export async function doctorCommand(args: DoctorCommandArgs = {}): Promise<numbe
   printChecks(checks)
   return checks.some((check) => check.status === 'fail') ? 1 : 0
 }
+
+const runCommand: CommandRunner = (command, args, options) => spawnSync(command, args, options)
 
 function checkNodeVersion(): DoctorCheck {
   const major = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10)
@@ -91,15 +116,15 @@ function checkNodeVersion(): DoctorCheck {
   }
 }
 
-function checkGitBinary(cwd: string): DoctorCheck {
-  const result = spawnSync('git', ['--version'], { cwd, encoding: 'utf8' })
+function checkGitBinary(cwd: string, commandRunner: CommandRunner): DoctorCheck {
+  const result = commandRunner('git', ['--version'], { cwd, encoding: 'utf8' })
   if (result.status === 0) {
-    return { status: 'ok', name: 'git binary', detail: result.stdout.trim() }
+    return { status: 'ok', name: 'git binary', detail: stringifyOutput(result.stdout).trim() }
   }
   return {
     status: 'fail',
     name: 'git binary',
-    detail: result.error?.message ?? result.stderr?.trim() ?? 'git is not available on PATH',
+    detail: result.error?.message ?? stringifyOutput(result.stderr).trim() ?? 'git is not available on PATH',
   }
 }
 
@@ -112,25 +137,52 @@ function checkBaseBranch(projectRoot: string, config: ProjectConfig): DoctorChec
     return {
       status: 'fail',
       name: 'base branch',
-      detail: `detached HEAD; checkout ${config.base} before running ChoirMaster`,
+      detail: `detached HEAD; run git checkout ${config.base} before choirmaster run`,
     }
   }
   return {
     status: 'fail',
     name: 'base branch',
-    detail: `on ${branch}; manifest.base is ${config.base}`,
+    detail: `on ${branch}; manifest.base is ${config.base}; run git checkout ${config.base} before choirmaster run`,
   }
 }
 
 function checkPrompts(projectRoot: string, config: ProjectConfig): DoctorCheck[] {
-  return Object.entries(config.prompts).map(([role, rel]) => {
-    const exists = existsSync(join(projectRoot, rel))
+  const prompts = config.prompts as Partial<ProjectPrompts>
+  const checks: DoctorCheck[] = []
+  for (const role of ['planner', 'implementer', 'reviewer'] as const) {
+    checks.push(checkPrompt(projectRoot, `prompt:${role}`, prompts[role]))
+  }
+
+  if (prompts.planReviewer) {
+    checks.push(checkPrompt(projectRoot, 'prompt:planReviewer', prompts.planReviewer))
+  }
+  else {
+    checks.push({
+      status: config.agents.planReviewer ? 'fail' : 'ok',
+      name: 'prompt:planReviewer',
+      detail: config.agents.planReviewer
+        ? 'missing prompt path for configured planReviewer agent'
+        : 'not configured; optional until plan-review iteration ships',
+    })
+  }
+  return checks
+}
+
+function checkPrompt(projectRoot: string, name: string, rel: string | undefined): DoctorCheck {
+  if (!rel) {
     return {
-      status: exists ? 'ok' : 'fail',
-      name: `prompt:${role}`,
-      detail: exists ? rel : `missing ${rel}`,
+      status: 'fail',
+      name,
+      detail: 'missing prompt path',
     }
-  })
+  }
+  const exists = existsSync(join(projectRoot, rel))
+  return {
+    status: exists ? 'ok' : 'fail',
+    name,
+    detail: exists ? rel : `missing ${rel}`,
+  }
 }
 
 function checkAgents(config: ProjectConfig): DoctorCheck[] {
@@ -160,12 +212,12 @@ function checkAgents(config: ProjectConfig): DoctorCheck[] {
   return checks
 }
 
-async function checkAgentCLIs(config: ProjectConfig): Promise<DoctorCheck[]> {
+async function checkAgentCLIs(config: ProjectConfig, commandRunner: CommandRunner): Promise<DoctorCheck[]> {
   const engines = configuredEngines(config)
   const checks: DoctorCheck[] = []
 
   if (engines.has('claude')) {
-    const result = spawnSync('claude', ['--version'], {
+    const result = commandRunner('claude', ['--version'], {
       encoding: 'utf8',
       timeout: 5000,
     })
@@ -173,14 +225,14 @@ async function checkAgentCLIs(config: ProjectConfig): Promise<DoctorCheck[]> {
       checks.push({
         status: 'ok',
         name: 'claude CLI',
-        detail: (result.stdout || result.stderr).trim(),
+        detail: stringifyOutput(result.stdout || result.stderr).trim(),
       })
     }
     else {
       checks.push({
         status: 'fail',
         name: 'claude CLI',
-        detail: result.error?.message ?? result.stderr?.trim() ?? 'claude --version failed',
+        detail: result.error?.message ?? stringifyOutput(result.stderr).trim() ?? 'claude --version failed',
       })
     }
   }
@@ -188,12 +240,24 @@ async function checkAgentCLIs(config: ProjectConfig): Promise<DoctorCheck[]> {
   return checks
 }
 
-async function checkNetwork(config: ProjectConfig): Promise<DoctorCheck[]> {
+async function checkNetwork(
+  config: ProjectConfig,
+  options: { lookupHost: LookupHost; skipNetwork: boolean },
+): Promise<DoctorCheck[]> {
   const engines = configuredEngines(config)
   const checks: DoctorCheck[] = []
 
   if (engines.has('claude')) {
-    checks.push(await dnsCheck('network:Anthropic DNS', 'api.anthropic.com'))
+    if (options.skipNetwork) {
+      checks.push({
+        status: 'warn',
+        name: 'network:Anthropic DNS',
+        detail: 'skipped (--skip-network)',
+      })
+    }
+    else {
+      checks.push(await dnsCheck('network:Anthropic DNS', 'api.anthropic.com', options.lookupHost))
+    }
   }
 
   return checks
@@ -281,7 +345,7 @@ function checkRunsGitignore(projectRoot: string): DoctorCheck {
 
 function checkForbiddenPaths(config: ProjectConfig): DoctorCheck {
   const paths = config.forbiddenPaths ?? []
-  const protectsEnv = paths.some((path) => path === '.env' || path === '.env.*' || path.startsWith('.env'))
+  const protectsEnv = paths.some((path) => path === '.env' || path === '.env.*' || path === '.env/**')
   if (protectsEnv) {
     return {
       status: 'ok',
@@ -306,16 +370,16 @@ function configuredEngines(config: ProjectConfig): Set<string> {
   return new Set(agents.map((agent) => agent.engine))
 }
 
-async function dnsCheck(name: string, host: string): Promise<DoctorCheck> {
+async function dnsCheck(name: string, host: string, lookupHost: LookupHost): Promise<DoctorCheck> {
   try {
-    await withTimeout(lookup(host), 3000)
+    await withTimeout(lookupHost(host), 3000)
     return { status: 'ok', name, detail: host }
   }
   catch (err) {
     return {
-      status: 'fail',
+      status: 'warn',
       name,
-      detail: `could not resolve ${host}: ${(err as Error).message}`,
+      detail: `could not resolve ${host}: ${(err as Error).message}; agent turns may fail if you are offline`,
     }
   }
 }
@@ -358,4 +422,8 @@ function label(status: CheckStatus): string {
     case 'fail':
       return '[fail]'
   }
+}
+
+function stringifyOutput(output: string | Buffer | undefined): string {
+  return output?.toString() ?? ''
 }

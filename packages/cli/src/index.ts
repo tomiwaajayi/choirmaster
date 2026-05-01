@@ -60,6 +60,10 @@ Plan options:
   --output <path>               Write the generated tasks file here
   --force, -f                   Overwrite an existing tasks file at the output path
 
+Doctor options:
+  --cwd <path>                  Check a different project directory
+  --skip-network, --offline     Skip DNS checks
+
 Run options:
   --continue-on-blocked         Skip blocked tasks instead of halting
   --reuse-worktree              Allow reusing existing worktrees
@@ -107,7 +111,20 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   if (command === 'doctor') {
-    return doctorCommand()
+    const argList = args.slice(1)
+    const cwdIdx = argList.indexOf('--cwd')
+    let cwd: string | undefined
+    if (cwdIdx !== -1) {
+      cwd = argList[cwdIdx + 1]
+      if (!cwd) {
+        process.stderr.write('--cwd requires a path.\n')
+        return 64
+      }
+    }
+    return doctorCommand({
+      cwd,
+      skipNetwork: argList.includes('--skip-network') || argList.includes('--offline'),
+    })
   }
 
   if (command === 'plan') {

@@ -70,3 +70,10 @@ jobs:
             throw new Error(`packed package has scoped runtime deps: ${leakedWorkspaceDeps.join(', ')}`)
           }
           NODE
+
+          smoke_dir="$(mktemp -d)"
+          cd "$smoke_dir"
+          npm init -y >/dev/null
+          npm install "$tarball_path" >/dev/null
+          npx choirmaster --version
+          npx cm --version
