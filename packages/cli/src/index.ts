@@ -55,6 +55,7 @@ Commands:
 
 Plan options:
   --output <path>               Write the generated tasks file here
+  --force, -f                   Overwrite an existing tasks file at the output path
 
 Run options:
   --continue-on-blocked         Skip blocked tasks instead of halting
@@ -118,10 +119,14 @@ export async function main(argv: string[]): Promise<number> {
     }
     const planFile = argList.find((a, i) => !consumed.has(i) && !a.startsWith('--'))
     if (!planFile) {
-      process.stderr.write('Usage: choirmaster plan <plan.md> [--output <tasks.json>]\n')
+      process.stderr.write('Usage: choirmaster plan <plan.md> [--output <tasks.json>] [--force]\n')
       return 64
     }
-    return planCommand({ planFile, outputFile })
+    return planCommand({
+      planFile,
+      outputFile,
+      force: args.includes('--force') || args.includes('-f'),
+    })
   }
 
   if (command === 'run') {
@@ -160,14 +165,15 @@ export async function main(argv: string[]): Promise<number> {
     // Plan-then-run: when the input is a markdown file, run the planner
     // first, then dispatch the generated tasks file. Keeps the user-facing
     // shape simple (`run <plan.md>`) while preserving `run <tasks.json>`
-    // for hand-authored or generated files.
+    // for hand-authored or generated files. Plan-then-run forces overwrite
+    // on the generated file because fresh planning is the explicit intent
+    // of this entry point; standalone `choirmaster plan` defaults to
+    // refusing overwrites so reviewed/edited tasks files don't get
+    // clobbered by a re-plan.
     let tasksFile = inputFile
     if (inputFile && inputFile.toLowerCase().endsWith('.md')) {
-      const planExit = await planCommand({ planFile: inputFile })
+      const planExit = await planCommand({ planFile: inputFile, force: true })
       if (planExit !== 0) return planExit
-      // planCommand wrote the validated tasks file to the default path
-      // (next to the plan, with `.tasks.json` extension); resolve that
-      // for the subsequent run.
       tasksFile = inputFile.replace(/\.md$/i, '.tasks.json')
     }
 

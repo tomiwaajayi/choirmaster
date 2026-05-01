@@ -12,7 +12,7 @@
  */
 
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 
 import type {
   AgentEvent,
@@ -20,6 +20,7 @@ import type {
 } from '../types.js'
 
 import type { RuntimeContext } from './context.js'
+import { git } from './git.js'
 import { ensureParent, type TaskLogger } from './log.js'
 import { buildSystemPrompt, loadPromptFile } from './prompt.js'
 import { validateTasksFile } from './tasks-file.js'
@@ -52,6 +53,14 @@ export interface RunPlannerOptions {
   planPath: string
   /** Absolute path where the validated `*.tasks.json` should land. */
   outputPath: string
+  /**
+   * Allow overwriting an existing tasks file at `outputPath`. The default
+   * is `false`: planning refuses to clobber a previously generated or
+   * hand-edited task file, since the intended workflow is to review/edit
+   * the generated tasks before running. The `run <plan.md>` plan-then-run
+   * path passes `true` because that flow's whole point is fresh planning.
+   */
+  force?: boolean
   /** Optional logger; if omitted, planner logs go to stdout only. */
   logger?: TaskLogger
 }
@@ -86,10 +95,22 @@ export async function runPlanner(
   ctx: RuntimeContext,
   options: RunPlannerOptions,
 ): Promise<RunPlannerResult> {
-  const { planPath, outputPath, logger } = options
+  const { planPath, outputPath, force = false, logger } = options
 
   if (!existsSync(planPath)) {
     return { ok: false, errors: [`plan file not found: ${planPath}`] }
+  }
+
+  // Refuse to clobber a hand-edited or previously reviewed tasks file
+  // unless the caller explicitly asks. Plan-then-run from `run <plan.md>`
+  // passes force=true; standalone `choirmaster plan` defaults to refusing.
+  if (existsSync(outputPath) && !force) {
+    return {
+      ok: false,
+      errors: [
+        `${outputPath} already exists. Pass --force to overwrite, or delete the file first.`,
+      ],
+    }
   }
 
   const planMarkdown = readFileSync(planPath, 'utf8')
@@ -105,6 +126,17 @@ export async function runPlanner(
   // pick up a previous run's file when the new turn writes nothing.
   const outputAbs = join(ctx.projectRoot, PLAN_OUTPUT_RELATIVE_PATH)
   if (existsSync(outputAbs)) rmSync(outputAbs)
+
+  // Snapshot the project's git status BEFORE the planner runs. The planner
+  // operates on the real project root with Write access (so it can produce
+  // plan-output.json), which means a misbehaving or prompt-injected planner
+  // could mutate source files on the user's branch. After the turn we'll
+  // diff this snapshot against the post-run status and refuse to commit
+  // the planner's verdict if anything outside `.choirmaster/plan-output.json`
+  // changed. We do NOT auto-revert - the user may have unrelated WIP we
+  // shouldn't touch - but we tell them exactly what moved so they can
+  // `git restore` themselves.
+  const baselineStatus = gitStatusSnapshot(ctx.projectRoot)
 
   logger?.line(`Invoking ${planner.name} (planner) in ${ctx.projectRoot}`)
   const t0 = Date.now()
@@ -129,6 +161,22 @@ export async function runPlanner(
         `Planner hit capacity: "${result.capacitySignal ?? 'capacity hit'}". Re-run after the cap window resets.`,
       ],
       capacityHit: true,
+    }
+  }
+
+  // Project-root mutation guard. The only path the planner is allowed to
+  // touch is `.choirmaster/plan-output.json`. Anything else - source
+  // edits, gitignore tweaks, new untracked files - is treated as a
+  // contract violation and blocks the run.
+  const rogue = unauthorizedChanges(ctx.projectRoot, baselineStatus)
+  if (rogue.length > 0) {
+    return {
+      ok: false,
+      errors: [
+        'Planner mutated files outside the allowed planner-output path. Aborting before writing tasks.json.',
+        'Affected paths (review and `git restore` as needed):',
+        ...rogue.map((path) => `  - ${path}`),
+      ],
     }
   }
 
@@ -213,6 +261,43 @@ function buildPlannerUserPrompt(
     planMarkdown.trim(),
   ]
   return lines.join('\n')
+}
+
+/**
+ * Map of relative-path -> two-character porcelain status code. Used as
+ * the before/after snapshot for the planner mutation guard.
+ */
+function gitStatusSnapshot(cwd: string): Map<string, string> {
+  const r = git(['status', '--porcelain'], cwd)
+  const map = new Map<string, string>()
+  if (r.status !== 0) return map
+  for (const line of r.stdout.split('\n')) {
+    if (!line) continue
+    // Porcelain v1 format: two status chars, one space, then the path.
+    // Renames appear as `R  old -> new`; the path slice still gives a
+    // useful comparable string for our diff purposes.
+    const status = line.slice(0, 2)
+    const path = line.slice(3)
+    map.set(path, status)
+  }
+  return map
+}
+
+/**
+ * Compare the post-planner git status against the snapshot taken before
+ * invocation and return any path whose status changed AND is not the
+ * allowed planner-output file. This is what catches a planner that
+ * decides (or was prompt-injected) to edit unrelated source files.
+ */
+function unauthorizedChanges(cwd: string, before: Map<string, string>): string[] {
+  const after = gitStatusSnapshot(cwd)
+  const rogue: string[] = []
+  for (const [path, status] of after) {
+    if (path === PLAN_OUTPUT_RELATIVE_PATH) continue
+    if (before.get(path) === status) continue
+    rogue.push(path)
+  }
+  return rogue
 }
 
 function streamEventToLogger(logger: TaskLogger | undefined, event: AgentEvent): void {

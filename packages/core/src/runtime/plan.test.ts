@@ -6,6 +6,7 @@
  * unnoticed.
  */
 
+import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -35,8 +36,22 @@ interface TestEnv {
   outputPath: string
 }
 
+function sh(cmd: string, cwd: string): void {
+  const r = spawnSync(cmd, { cwd, shell: true, encoding: 'utf8' })
+  if (r.status !== 0) {
+    throw new Error(`Command failed (exit ${r.status}): ${cmd}\n${r.stderr || r.stdout}`)
+  }
+}
+
 function setupEnv(planMarkdown: string = '# tiny plan\n\nDo a thing.\n'): TestEnv {
   const projectRoot = mkdtempSync(join(tmpdir(), 'choir-plan-'))
+  // Real git repo so the planner mutation guard (which uses
+  // `git status --porcelain`) has something to read against.
+  sh('git init -b main', projectRoot)
+  sh('git config user.email test@example.com', projectRoot)
+  sh('git config user.name "Test"', projectRoot)
+  sh('git config commit.gpgsign false', projectRoot)
+
   // Minimal prompt files - loadPromptFile reads them at runtime.
   mkdirSync(join(projectRoot, '.choirmaster/prompts'), { recursive: true })
   mkdirSync(join(projectRoot, '.choirmaster/plans'), { recursive: true })
@@ -46,6 +61,11 @@ function setupEnv(planMarkdown: string = '# tiny plan\n\nDo a thing.\n'): TestEn
 
   const planPath = join(projectRoot, '.choirmaster/plans/sample.md')
   writeFileSync(planPath, planMarkdown)
+
+  // Commit the scaffold so subsequent planner runs see a clean baseline
+  // and any agent-introduced change shows up in `git status`.
+  sh('git add -A', projectRoot)
+  sh('git commit -m initial', projectRoot)
 
   const outputPath = join(projectRoot, '.choirmaster/plans/sample.tasks.json')
   const runDir = join(projectRoot, '.choirmaster')
@@ -296,5 +316,122 @@ describe('runPlanner', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.errors[0]).toMatch(/plan file not found/)
+  })
+
+  it('refuses to overwrite an existing tasks file unless force is set', async () => {
+    // Pre-existing reviewed/edited tasks file at the output path.
+    writeFileSync(env.outputPath, JSON.stringify([{ ...validTask, id: 'EDITED' }]))
+
+    const planner = fakePlanner([turnWriteOutput([validTask])])
+    const ctx = buildContext(env, buildConfig(planner))
+
+    const result = await runPlanner(ctx, {
+      planPath: env.planPath,
+      outputPath: env.outputPath,
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors[0]).toMatch(/already exists/)
+    // Pre-existing file untouched.
+    const onDisk = JSON.parse(readFileSync(env.outputPath, 'utf8'))
+    expect(onDisk[0].id).toBe('EDITED')
+  })
+
+  it('overwrites the existing tasks file when force is set', async () => {
+    writeFileSync(env.outputPath, JSON.stringify([{ ...validTask, id: 'EDITED' }]))
+
+    const planner = fakePlanner([turnWriteOutput([validTask])])
+    const ctx = buildContext(env, buildConfig(planner))
+
+    const result = await runPlanner(ctx, {
+      planPath: env.planPath,
+      outputPath: env.outputPath,
+      force: true,
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const onDisk = JSON.parse(readFileSync(env.outputPath, 'utf8'))
+    expect(onDisk[0].id).toBe('TASK-01') // freshly planned, replaced EDITED
+  })
+
+  it('blocks when the planner mutates a file outside plan-output.json', async () => {
+    // A misbehaving / prompt-injected planner that ALSO writes to a source
+    // file. The runtime must catch this via the git-status guard and
+    // refuse to land the (otherwise-valid) tasks file.
+    const rogueWriter: Turn = async (opts) => {
+      // Touch a tracked file to dirty the working tree.
+      writeFileSync(join(opts.cwd, '.choirmaster/prompts/planner.md'), 'TAMPERED\n')
+      // Also write the legitimate planner output - on its own this would
+      // pass validation, which is exactly what makes the guard necessary.
+      mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
+      writeFileSync(
+        join(opts.cwd, '.choirmaster/plan-output.json'),
+        JSON.stringify([validTask]),
+      )
+      return RESULT_OK
+    }
+    const planner = fakePlanner([rogueWriter])
+    const ctx = buildContext(env, buildConfig(planner))
+
+    const result = await runPlanner(ctx, {
+      planPath: env.planPath,
+      outputPath: env.outputPath,
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors[0]).toMatch(/outside the allowed planner-output/)
+    expect(result.errors.some((e) => e.includes('planner.md'))).toBe(true)
+    // No tasks file written - the validated output is rejected at the guard.
+    expect(existsSync(env.outputPath)).toBe(false)
+  })
+
+  it('blocks when the planner creates an unrelated untracked file', async () => {
+    const rogueWriter: Turn = async (opts) => {
+      // New file in the project root, outside `.choirmaster/`.
+      writeFileSync(join(opts.cwd, 'rogue.txt'), 'leaked\n')
+      mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
+      writeFileSync(
+        join(opts.cwd, '.choirmaster/plan-output.json'),
+        JSON.stringify([validTask]),
+      )
+      return RESULT_OK
+    }
+    const planner = fakePlanner([rogueWriter])
+    const ctx = buildContext(env, buildConfig(planner))
+
+    const result = await runPlanner(ctx, {
+      planPath: env.planPath,
+      outputPath: env.outputPath,
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors.some((e) => e.includes('rogue.txt'))).toBe(true)
+    expect(existsSync(env.outputPath)).toBe(false)
+  })
+
+  it("ignores pre-existing dirty state in the user's working tree", async () => {
+    // The user has unrelated WIP - a modified tracked file - that pre-dates
+    // the planner invocation. The guard should not flag this as planner
+    // misbehavior; only deltas from the baseline matter.
+    writeFileSync(join(env.projectRoot, '.choirmaster/prompts/planner.md'), '# user edited\n')
+
+    const planner = fakePlanner([turnWriteOutput([validTask])])
+    const ctx = buildContext(env, buildConfig(planner))
+
+    const result = await runPlanner(ctx, {
+      planPath: env.planPath,
+      outputPath: env.outputPath,
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(existsSync(env.outputPath)).toBe(true)
+    // The user's pre-existing WIP is still on disk untouched.
+    expect(readFileSync(join(env.projectRoot, '.choirmaster/prompts/planner.md'), 'utf8'))
+      .toBe('# user edited\n')
   })
 })

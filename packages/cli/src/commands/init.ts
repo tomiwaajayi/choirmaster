@@ -32,6 +32,7 @@ export async function initCommand(args: InitCommandArgs = {}): Promise<number> {
 
   writeFileSync(join(choirDir, 'manifest.ts'), MANIFEST_TEMPLATE)
   writeFileSync(join(choirDir, 'prompts', 'planner.md'), PLANNER_TEMPLATE)
+  writeFileSync(join(choirDir, 'prompts', 'plan-reviewer.md'), PLAN_REVIEWER_TEMPLATE)
   writeFileSync(join(choirDir, 'prompts', 'implementer.md'), IMPLEMENTER_TEMPLATE)
   writeFileSync(join(choirDir, 'prompts', 'reviewer.md'), REVIEWER_TEMPLATE)
   writeFileSync(join(choirDir, 'plans', 'example.md'), EXAMPLE_PLAN_TEMPLATE)
@@ -43,6 +44,7 @@ export async function initCommand(args: InitCommandArgs = {}): Promise<number> {
   process.stdout.write(`Files created:\n`)
   process.stdout.write(`  .choirmaster/manifest.ts\n`)
   process.stdout.write(`  .choirmaster/prompts/planner.md\n`)
+  process.stdout.write(`  .choirmaster/prompts/plan-reviewer.md\n`)
   process.stdout.write(`  .choirmaster/prompts/implementer.md\n`)
   process.stdout.write(`  .choirmaster/prompts/reviewer.md\n`)
   process.stdout.write(`  .choirmaster/plans/example.md\n`)
@@ -265,6 +267,23 @@ The user prompt will tell you which mode you're in:
 - \`FIX_REVIEW_FINDINGS\`: the reviewer flagged issues. Read each issue, fix or pushback, write a new handoff. If you genuinely disagree with a reviewer point (rare), explain in \`pushbacks\` rather than ignoring it.
 `
 
+const PLAN_REVIEWER_TEMPLATE = `# Plan reviewer agent (placeholder)
+
+> The plan-reviewer role is not yet wired into the runtime; this file
+> exists so the manifest's \`prompts.planReviewer\` path resolves and so
+> Phase 2B (plan-review iteration) can land without a follow-up edit.
+> Phase 2A's planner is single-shot.
+
+When the plan reviewer ships, this prompt will instruct it to:
+
+1. Read the planner's emitted task list and the source markdown plan.
+2. Check task scope, dependencies, definitions of done, and risk.
+3. Reject tasks that are too broad, ambiguous, or unsafe to execute.
+4. Prefer tightening scope and splitting tasks over rewriting the plan.
+
+Until then you can leave this file untouched.
+`
+
 const REVIEWER_TEMPLATE = `# Reviewer agent
 
 You are the reviewer in a ChoirMaster orchestration loop. The implementer has finished their turn, the deterministic gates have passed (typecheck/test/audit), and your job is to give an independent second opinion against the task's definition of done.
@@ -314,32 +333,48 @@ Severity levels:
 Strict mode: \`READY\` only when the issues array is empty. If you wrote anything down, the verdict is \`BLOCKED\`.
 `
 
-const EXAMPLE_PLAN_TEMPLATE = `# Example plan
+const EXAMPLE_PLAN_TEMPLATE = `# Example plan: add a NOTES.md
 
-> Edit this to describe what you want done. The planner agent (when shipped) will turn plan files like this into a tasks.json contract list. For now, you author the tasks.json directly - see \`example.tasks.json\` next to this file.
+A trivial plan you can run end-to-end to verify the orchestrator pipeline
+works on this repo. Replace this content with your real plan once you've
+seen the flow.
+
+To run this plan:
+
+\`\`\`bash
+choirmaster run .choirmaster/plans/example.md
+\`\`\`
+
+That command:
+
+1. Invokes the planner agent. It reads this markdown, generates a
+   validated \`example.tasks.json\` next to this file, and stops.
+2. Hands the generated tasks file to the runtime, which drives each task
+   through implementer -> gates -> reviewer -> commit -> merge in an
+   isolated git worktree.
 
 ## Goal
 
-A short one-line statement of what this plan accomplishes.
-
-## Tasks
-
-For each task, declare:
-- A title
-- The files in scope (allowed_paths)
-- Anything to avoid (forbidden_paths)
-- The deterministic gates that should pass after the task
-- The definition of done
+Create a \`NOTES.md\` file at the repository root that records this is a
+ChoirMaster-managed project.
 
 ## Constraints
 
-- Don't touch X
-- Must use Y
-- Preserve Z
+- Only \`NOTES.md\` should be created or modified.
+- Do not touch any other file in the repo.
+- The file must be brand new; if it already exists, the plan is satisfied
+  by the existing file (no change needed).
 
-## Retry caps
+## Definition of done
 
-Each task has a budget for implementer attempts (\`max_attempts\`) and reviewer iterations (\`max_review_iterations\`). Per-task fields are optional - omit them to inherit the manifest's \`limits\`, which itself falls back to the built-in defaults (4 attempts, 3 reviewer iterations). Set per-task only when one task warrants a different cap.
+- \`NOTES.md\` exists at the repo root.
+- It contains exactly two non-empty lines: a one-line greeting and a
+  one-line description of what ChoirMaster does for this repository.
+
+## Notes for the planner
+
+This plan is intentionally tiny. One task is enough. Don't invent
+additional cleanup, refactor, or test work that isn't asked for.
 `
 
 const EXAMPLE_TASKS_TEMPLATE = `[

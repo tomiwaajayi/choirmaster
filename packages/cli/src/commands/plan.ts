@@ -18,6 +18,8 @@ export interface PlanCommandArgs {
   planFile: string
   /** Optional override for the generated tasks.json path. */
   outputFile?: string
+  /** Allow overwriting an existing tasks file at the output path. */
+  force?: boolean
   /** Working directory; defaults to process.cwd(). */
   cwd?: string
 }
@@ -65,7 +67,7 @@ export async function planCommand(args: PlanCommandArgs): Promise<number> {
       logsDir,
       config,
     },
-    { planPath, outputPath },
+    { planPath, outputPath, force: args.force ?? false },
   )
 
   if (!result.ok) {
