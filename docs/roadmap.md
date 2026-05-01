@@ -10,6 +10,23 @@ ChoirMaster should become the local agentic workbench engineers can trust for ev
 
 The strongest version of ChoirMaster is boring in the best way. It should let an engineer hand off well-scoped work, go AFK, and come back to branches, commits, logs, and reviewable outcomes rather than mystery edits.
 
+## Target Experience
+
+A developer should be able to install ChoirMaster, initialize a repo, write or generate a markdown plan, and get a safe reviewable branch without learning the task-file schema first.
+
+ChoirMaster should help the user write a good plan, not just execute one.
+
+The markdown plan is the human authoring surface. The `*.tasks.json` is the generated execution contract; the runtime owns it, the user does not have to.
+
+### Target for 0.3.x
+
+- Single-package install (`npm install -g choirmaster`).
+- Markdown-first: `choirmaster run <plan.md>` is the primary path; `<tasks.json>` is the advanced/debug surface.
+- Visible self-dogfood config in this repo (`.choirmaster/`), proving the runtime against itself.
+- Sandbox prepare hook for real worktrees (e.g. `pnpm install --frozen-lockfile`).
+- Plan authoring help: templates, `doctor`, or an interactive plan writer that turns rough intent into a reviewable plan.
+- Safe default branch behavior decided and documented: most likely a plan-level flow (`current branch -> plan branch -> task branches -> plan branch`) so a random first run never mutates `main` by surprise.
+
 ## Current Reality
 
 Today, ChoirMaster runs authored task files. A user writes a `*.tasks.json` file that describes each unit of work, including allowed paths, forbidden paths, gates, branch, worktree, and definition of done.
