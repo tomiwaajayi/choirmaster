@@ -40,7 +40,7 @@ import type {
 import type { RuntimeContext } from './context.js'
 import { HANDOFF_RELATIVE_PATH, REVIEW_RELATIVE_PATH } from './handoff.js'
 import { runTask } from './loop.js'
-import { saveState } from './state.js'
+import { loadState, saveState } from './state.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test repo setup
@@ -299,6 +299,21 @@ function gateRunCount(env: TestEnv): number {
   return readFileSync(env.gateCounterFile, 'utf8').length
 }
 
+/**
+ * Reload run state from disk and pluck the named task back out. Mirrors
+ * what `choirmaster run --resume` does between invocations: state.json is
+ * the source of truth, and the in-memory task/state objects from the
+ * previous call are discarded. Resume tests use this between runTask
+ * calls so they catch any field the runtime relies on but doesn't
+ * serialize.
+ */
+function reload(env: TestEnv, taskId: string): { state: RunState, task: Task } {
+  const state = loadState(env.runDir)
+  const task = state.tasks.find((t) => t.id === taskId)
+  if (!task) throw new Error(`reload: task ${taskId} not found in saved state`)
+  return { state, task }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
@@ -327,23 +342,32 @@ describe('runTask', () => {
       ],
       [turnReview(TASK_ID, { verdict: 'READY' })],
     )
-    const task = buildTask()
-    const state = buildState(task)
-    saveState(env.runDir, state)
     const ctx = buildContext(env, config)
+    saveState(env.runDir, buildState(buildTask()))
 
     // Run 1: pauses on capacity.
-    await runTask(ctx, state, task)
-    expect(task.status).toBe('waiting_for_capacity')
-    expect(task.paused_phase).toBe('implementer')
-    expect(task.attempts).toBe(1)
-    expect(task.completed_attempts ?? 0).toBe(0)
+    {
+      const { state, task } = reload(env, TASK_ID)
+      await runTask(ctx, state, task)
+      expect(task.status).toBe('waiting_for_capacity')
+      expect(task.paused_phase).toBe('implementer')
+      expect(task.attempts).toBe(1)
+      expect(task.completed_attempts ?? 0).toBe(0)
+    }
 
-    // Run 2: resumes attempt 1, completes.
-    await runTask(ctx, state, task)
-    expect(task.status).toBe('completed')
-    expect(task.attempts).toBe(1) // never advanced past 1
-    expect(task.completed_attempts).toBe(1)
+    // Run 2: reload from disk (mirrors how `--resume` re-enters), then
+    // resume attempt 1 and complete.
+    {
+      const { state, task } = reload(env, TASK_ID)
+      // Disk-resident pause state survived serialization.
+      expect(task.status).toBe('waiting_for_capacity')
+      expect(task.paused_phase).toBe('implementer')
+
+      await runTask(ctx, state, task)
+      expect(task.status).toBe('completed')
+      expect(task.attempts).toBe(1) // never advanced past 1
+      expect(task.completed_attempts).toBe(1)
+    }
 
     // Both implementer turns consumed; reviewer ran once.
     expect(implementer.remaining).toBe(0)
@@ -363,25 +387,34 @@ describe('runTask', () => {
         turnReview(TASK_ID, { verdict: 'READY' }), // run 2: iter 1 re-runs and approves
       ],
     )
-    const task = buildTask()
-    const state = buildState(task)
-    saveState(env.runDir, state)
     const ctx = buildContext(env, config)
+    saveState(env.runDir, buildState(buildTask()))
 
-    await runTask(ctx, state, task)
-    expect(task.status).toBe('waiting_for_capacity')
-    expect(task.paused_phase).toBe('reviewer')
-    expect(task.review_iterations).toBe(1)
-    expect(task.completed_review_iterations ?? 0).toBe(0)
+    {
+      const { state, task } = reload(env, TASK_ID)
+      await runTask(ctx, state, task)
+      expect(task.status).toBe('waiting_for_capacity')
+      expect(task.paused_phase).toBe('reviewer')
+      expect(task.review_iterations).toBe(1)
+      expect(task.completed_review_iterations ?? 0).toBe(0)
+    }
 
-    await runTask(ctx, state, task)
-    expect(task.status).toBe('completed')
-    // Resume re-entered iter 1, not iter 2: the started counter stayed
-    // at 1, and the reviewer was invoked exactly twice (capacity + ready).
-    // `completed_review_iterations` doesn't advance on a READY exit -
-    // it only advances after a BLOCKED-then-fix cycle ran end-to-end -
-    // so it stays at 0 here.
-    expect(task.review_iterations).toBe(1)
+    {
+      const { state, task } = reload(env, TASK_ID)
+      // Pause state survived serialization.
+      expect(task.paused_phase).toBe('reviewer')
+      expect(task.review_iterations).toBe(1)
+
+      await runTask(ctx, state, task)
+      expect(task.status).toBe('completed')
+      // Resume re-entered iter 1, not iter 2: the started counter stayed
+      // at 1, and the reviewer was invoked exactly twice (capacity + ready).
+      // `completed_review_iterations` doesn't advance on a READY exit -
+      // it only advances after a BLOCKED-then-fix cycle ran end-to-end -
+      // so it stays at 0 here.
+      expect(task.review_iterations).toBe(1)
+    }
+
     expect(reviewer.calls).toBe(2)
     expect(reviewer.remaining).toBe(0)
   })
@@ -424,19 +457,26 @@ describe('runTask', () => {
         turnReview(TASK_ID, { verdict: 'READY' }), // final-verify run 2 - ready
       ],
     )
-    const task = buildTask()
-    const state = buildState(task)
-    saveState(env.runDir, state)
     const ctx = buildContext(env, config)
+    saveState(env.runDir, buildState(buildTask()))
 
-    await runTask(ctx, state, task)
-    expect(task.status).toBe('waiting_for_capacity')
-    expect(task.paused_phase).toBe('reviewer')
-    // Regular loop ran to completion before final-verify fired.
-    expect(task.completed_review_iterations).toBe(3)
+    {
+      const { state, task } = reload(env, TASK_ID)
+      await runTask(ctx, state, task)
+      expect(task.status).toBe('waiting_for_capacity')
+      expect(task.paused_phase).toBe('reviewer')
+      // Regular loop ran to completion before final-verify fired.
+      expect(task.completed_review_iterations).toBe(3)
+    }
 
-    await runTask(ctx, state, task)
-    expect(task.status).toBe('completed')
+    {
+      const { state, task } = reload(env, TASK_ID)
+      expect(task.completed_review_iterations).toBe(3)
+
+      await runTask(ctx, state, task)
+      expect(task.status).toBe('completed')
+    }
+
     expect(reviewer.remaining).toBe(0)
   })
 
@@ -453,30 +493,42 @@ describe('runTask', () => {
         turnReview(TASK_ID, { verdict: 'READY' }), // run 2: iter 1 re-runs, approves
       ],
     )
-    const task = buildTask()
-    const state = buildState(task)
-    saveState(env.runDir, state)
     const ctx = buildContext(env, config)
+    saveState(env.runDir, buildState(buildTask()))
 
-    // Run 1 throws out of the reviewer call. Runtime leaves status=in_progress,
-    // paused_phase=undefined, review_iterations=1, completed_review_iterations=0.
-    await expect(runTask(ctx, state, task)).rejects.toThrow('simulated kill')
-    expect(task.status).toBe('in_progress')
-    expect(task.paused_phase).toBeUndefined()
-    expect(task.review_iterations).toBe(1)
-    expect(task.completed_review_iterations ?? 0).toBe(0)
-    const gatesAfterRun1 = gateRunCount(env)
-    expect(gatesAfterRun1).toBeGreaterThanOrEqual(1) // post-implementer attempt 1
+    let gatesAfterRun1 = 0
+    {
+      const { state, task } = reload(env, TASK_ID)
+      // Run 1 throws out of the reviewer call. Runtime leaves
+      // status=in_progress, paused_phase=undefined, review_iterations=1,
+      // completed_review_iterations=0.
+      await expect(runTask(ctx, state, task)).rejects.toThrow('simulated kill')
+      expect(task.status).toBe('in_progress')
+      expect(task.paused_phase).toBeUndefined()
+      expect(task.review_iterations).toBe(1)
+      expect(task.completed_review_iterations ?? 0).toBe(0)
+      gatesAfterRun1 = gateRunCount(env)
+      expect(gatesAfterRun1).toBeGreaterThanOrEqual(1) // post-implementer attempt 1
+    }
 
-    // Run 2: re-enters reviewer phase, must re-verify gates first.
-    await runTask(ctx, state, task)
-    expect(task.status).toBe('completed')
-    // Resume re-entered iter 1 (started counter unchanged, not bumped to 2).
-    // The READY exit doesn't advance completed_review_iterations - same
-    // rule as the capacity-pause test above.
-    expect(task.review_iterations).toBe(1)
-    // Resume re-check ran the gates again.
-    expect(gateRunCount(env)).toBeGreaterThan(gatesAfterRun1)
+    {
+      const { state, task } = reload(env, TASK_ID)
+      // Killed-mid-reviewer state survived serialization, including the
+      // absence of paused_phase (which is what triggers the resume re-check).
+      expect(task.status).toBe('in_progress')
+      expect(task.paused_phase).toBeUndefined()
+      expect(task.review_iterations).toBe(1)
+
+      // Run 2: re-enters reviewer phase, must re-verify gates first.
+      await runTask(ctx, state, task)
+      expect(task.status).toBe('completed')
+      // Resume re-entered iter 1 (started counter unchanged, not bumped to 2).
+      // The READY exit doesn't advance completed_review_iterations - same
+      // rule as the capacity-pause test above.
+      expect(task.review_iterations).toBe(1)
+      // Resume re-check ran the gates again.
+      expect(gateRunCount(env)).toBeGreaterThan(gatesAfterRun1)
+    }
   })
 
   it('scope violation reverts the worktree and only advances completed_attempts at terminal points', async () => {
