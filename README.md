@@ -75,26 +75,30 @@ You also need the `claude` CLI installed and authenticated. ChoirMaster shells o
 choirmaster init
 
 # edit .choirmaster/manifest.ts (set base branch, gates, retry caps)
-# author tasks in .choirmaster/plans/<name>.tasks.json
-# (a worked example lives at .choirmaster/plans/example.tasks.json)
+# write what you want done in markdown
+# (a worked example lives at .choirmaster/plans/example.md)
 
-# run every pending task in order
+# plan-then-run from a markdown plan: the planner agent compiles it
+# into a validated tasks file, the runtime executes it
+choirmaster run .choirmaster/plans/example.md
+
+# alternatively: just plan, review the generated tasks.json, then run
+choirmaster plan .choirmaster/plans/example.md
 choirmaster run .choirmaster/plans/example.tasks.json
 
 # resume a paused or interrupted run
 choirmaster run --resume <run-id>
 
 # skip blocked tasks instead of halting
-choirmaster run .choirmaster/plans/example.tasks.json --continue-on-blocked
+choirmaster run .choirmaster/plans/example.md --continue-on-blocked
 
 # leave each task on its branch (don't auto-merge into base)
-choirmaster run .choirmaster/plans/example.tasks.json --no-auto-merge
+choirmaster run .choirmaster/plans/example.md --no-auto-merge
 ```
 
 ### Coming soon
 
-- `choirmaster plan <plan.md>` - planner agent decomposes a markdown plan into a tasks file
-- `choirmaster run --label ready-for-agent` - GitHub-issue-driven plans
+- `choirmaster run --issue N` - GitHub issue input feeding the same planner pipeline
 - Per-role engine flags (`--implementer codex`, `--reviewer claude:opus`)
 - `--sandbox docker` for hard isolation
 

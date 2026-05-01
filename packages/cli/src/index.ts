@@ -19,6 +19,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { initCommand } from './commands/init.js'
+import { planCommand } from './commands/plan.js'
 import { runCommand } from './commands/run.js'
 
 // ── Library re-exports ──────────────────────────────────────────────────────
@@ -48,8 +49,12 @@ Usage:
 
 Commands:
   init [--force]                Scaffold .choirmaster/ in the current repo
-  run <tasks.json>              Run every pending task in the file
+  plan <plan.md>                Decompose a markdown plan into a tasks file
+  run <plan.md|tasks.json>      Plan-then-run a markdown plan, or run a tasks file
   run --resume <run-id>         Resume a paused or interrupted run
+
+Plan options:
+  --output <path>               Write the generated tasks file here
 
 Run options:
   --continue-on-blocked         Skip blocked tasks instead of halting
@@ -61,7 +66,7 @@ Options:
   -h, --help                    Print this help
 
 Coming soon:
-  plan <plan.md> | --issue N    Decompose a plan or GitHub issue into tasks
+  run --issue N                 GitHub issue input
   status                        Show all runs and their states
   reset <run-id>                Reset blocked tasks in a run
 
@@ -85,9 +90,8 @@ export async function main(argv: string[]): Promise<number> {
   const command = args[0]
   // Unimplemented commands fall through to a "coming soon" stub so users
   // get a clear signal instead of "unknown command". Implemented commands
-  // (init, run) are dispatched by their own branches below.
+  // (init, plan, run) are dispatched by their own branches below.
   const COMING_SOON: Record<string, string> = {
-    plan: 'Decompose a plan or GitHub issue into a tasks file',
     status: 'Show all runs and their states',
     reset: 'Reset blocked tasks in a run',
   }
@@ -98,10 +102,32 @@ export async function main(argv: string[]): Promise<number> {
     })
   }
 
+  if (command === 'plan') {
+    const argList = args.slice(1)
+    const outputIdx = argList.indexOf('--output')
+    let outputFile: string | undefined
+    const consumed = new Set<number>()
+    if (outputIdx !== -1) {
+      outputFile = argList[outputIdx + 1]
+      if (!outputFile) {
+        process.stderr.write('--output requires a path.\n')
+        return 64
+      }
+      consumed.add(outputIdx)
+      consumed.add(outputIdx + 1)
+    }
+    const planFile = argList.find((a, i) => !consumed.has(i) && !a.startsWith('--'))
+    if (!planFile) {
+      process.stderr.write('Usage: choirmaster plan <plan.md> [--output <tasks.json>]\n')
+      return 64
+    }
+    return planCommand({ planFile, outputFile })
+  }
+
   if (command === 'run') {
     const argList = args.slice(1)
 
-    // --resume <run-id> takes precedence over a positional tasks file.
+    // --resume <run-id> takes precedence over a positional input.
     const resumeIdx = argList.indexOf('--resume')
     let resumeRunId: string | undefined
     const consumed = new Set<number>()
@@ -115,20 +141,34 @@ export async function main(argv: string[]): Promise<number> {
       consumed.add(resumeIdx + 1)
     }
 
-    const tasksFile = argList.find((a, i) => !consumed.has(i) && !a.startsWith('--'))
-    if (resumeRunId && tasksFile) {
+    const inputFile = argList.find((a, i) => !consumed.has(i) && !a.startsWith('--'))
+    if (resumeRunId && inputFile) {
       process.stderr.write(
-        `Pass either a tasks file or --resume, not both. (got both '${tasksFile}' and --resume ${resumeRunId})\n`,
+        `Pass either a plan/tasks file or --resume, not both. (got both '${inputFile}' and --resume ${resumeRunId})\n`,
       )
       return 64
     }
-    if (!resumeRunId && !tasksFile) {
+    if (!resumeRunId && !inputFile) {
       process.stderr.write(
         'Usage:\n'
-        + '  choirmaster run <tasks.json> [--continue-on-blocked] [--reuse-worktree] [--no-auto-merge]\n'
+        + '  choirmaster run <plan.md|tasks.json> [--continue-on-blocked] [--reuse-worktree] [--no-auto-merge]\n'
         + '  choirmaster run --resume <run-id>\n',
       )
       return 64
+    }
+
+    // Plan-then-run: when the input is a markdown file, run the planner
+    // first, then dispatch the generated tasks file. Keeps the user-facing
+    // shape simple (`run <plan.md>`) while preserving `run <tasks.json>`
+    // for hand-authored or generated files.
+    let tasksFile = inputFile
+    if (inputFile && inputFile.toLowerCase().endsWith('.md')) {
+      const planExit = await planCommand({ planFile: inputFile })
+      if (planExit !== 0) return planExit
+      // planCommand wrote the validated tasks file to the default path
+      // (next to the plan, with `.tasks.json` extension); resolve that
+      // for the subsequent run.
+      tasksFile = inputFile.replace(/\.md$/i, '.tasks.json')
     }
 
     return runCommand({
