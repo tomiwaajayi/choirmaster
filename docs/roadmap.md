@@ -242,10 +242,12 @@ Guardrails:
 - Lockfile policy.
 - Audit trail for agent commands, files touched, gates, and commits.
 - Permission profiles such as `solo`, `team`, and `strict`.
+- **Isolated planner sandbox.** Move planner execution into its own planning sandbox (a dedicated git worktree or fully sandboxed temp directory) so the planner can inspect the repo and write only the generated task contract, without any ability to mutate the user's working branch. The Phase 2A guard hashes git-visible state plus configured `forbiddenPaths` and is enough for everyday use, but it cannot reach files that are both gitignored AND outside `forbiddenPaths`. Sandboxing closes that residual gap by removing the "real project root" entirely from the planner's writable surface.
 
 Success criteria:
 
 - Users can choose a stricter execution profile when the repo or task requires it.
+- The planner cannot, by construction, mutate any file on the user's working branch.
 
 ## Phase 6: Agent Ecosystem
 
