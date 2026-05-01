@@ -495,6 +495,107 @@ describe('runPlanner', () => {
     expect(result.errors.some((e) => e.toLowerCase().includes('capacity'))).toBe(true)
   })
 
+  it("flags planner deletion of the user's pre-existing untracked WIP", async () => {
+    // User had an untracked scratch file in the worktree before planning.
+    // The planner deletes it. Without union-of-before-and-after the path
+    // disappears from `git status` and the guard would see no rogue
+    // changes - silently losing the user's work.
+    const wipPath = join(env.projectRoot, 'scratch.txt')
+    writeFileSync(wipPath, 'user notes\n')
+
+    const rogueDelete: Turn = async (opts) => {
+      // Planner removes the user's WIP file outright.
+      rmSync(join(opts.cwd, 'scratch.txt'))
+      mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
+      writeFileSync(
+        join(opts.cwd, '.choirmaster/plan-output.json'),
+        JSON.stringify([validTask]),
+      )
+      return RESULT_OK
+    }
+    const planner = fakePlanner([rogueDelete])
+    const ctx = buildContext(env, buildConfig(planner))
+
+    const result = await runPlanner(ctx, {
+      planPath: env.planPath,
+      outputPath: env.outputPath,
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors.some((e) => e.includes('scratch.txt'))).toBe(true)
+    expect(existsSync(env.outputPath)).toBe(false)
+  })
+
+  it('flags planner edits inside an untracked directory the user already had', async () => {
+    // The default `--porcelain` output collapses untracked directories
+    // into a single `?? scratch/` entry. With --untracked-files=all each
+    // file inside the dir is enumerated, so adding a new file inside an
+    // existing untracked dir is caught as a new path.
+    const scratchDir = join(env.projectRoot, 'scratch')
+    mkdirSync(scratchDir, { recursive: true })
+    writeFileSync(join(scratchDir, 'note.txt'), 'pre-existing note\n')
+
+    const rogueAdd: Turn = async (opts) => {
+      writeFileSync(join(opts.cwd, 'scratch/leaked.txt'), 'planner-added\n')
+      mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
+      writeFileSync(
+        join(opts.cwd, '.choirmaster/plan-output.json'),
+        JSON.stringify([validTask]),
+      )
+      return RESULT_OK
+    }
+    const planner = fakePlanner([rogueAdd])
+    const ctx = buildContext(env, buildConfig(planner))
+
+    const result = await runPlanner(ctx, {
+      planPath: env.planPath,
+      outputPath: env.outputPath,
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors.some((e) => e.includes('scratch/leaked.txt'))).toBe(true)
+    expect(existsSync(env.outputPath)).toBe(false)
+  })
+
+  it('refuses to invoke the planner when the project root is not a git repo', async () => {
+    // Build a non-git temp dir with the prompt + plan files but no git
+    // metadata. The guard cannot snapshot a baseline, so runPlanner must
+    // fail closed BEFORE invoking the agent.
+    const nonGitRoot = mkdtempSync(join(tmpdir(), 'choir-plan-nongit-'))
+    mkdirSync(join(nonGitRoot, '.choirmaster/prompts'), { recursive: true })
+    mkdirSync(join(nonGitRoot, '.choirmaster/plans'), { recursive: true })
+    writeFileSync(join(nonGitRoot, '.choirmaster/prompts/planner.md'), '# planner\n')
+    const planPath = join(nonGitRoot, '.choirmaster/plans/sample.md')
+    writeFileSync(planPath, '# plan\n')
+
+    let invocations = 0
+    const counter: Turn = async () => {
+      invocations += 1
+      return RESULT_OK
+    }
+    const planner = fakePlanner([counter])
+    const config = buildConfig(planner)
+    const ctx: RuntimeContext = {
+      projectRoot: nonGitRoot,
+      runDir: join(nonGitRoot, '.choirmaster'),
+      logsDir: join(nonGitRoot, '.choirmaster/logs'),
+      config,
+    }
+    mkdirSync(ctx.logsDir, { recursive: true })
+
+    const outputPath = join(nonGitRoot, '.choirmaster/plans/sample.tasks.json')
+    const result = await runPlanner(ctx, { planPath, outputPath })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors[0]).toMatch(/git status baseline/i)
+    expect(invocations).toBe(0) // planner was NOT invoked
+
+    rmSync(nonGitRoot, { recursive: true, force: true })
+  })
+
   it('reports a clean capacity exit when the planner did not mutate anything', async () => {
     // The capacity-only path still works: nothing dirty, just a polite
     // pause-and-retry message with capacityHit set.
