@@ -134,6 +134,14 @@ export default defineProject({
     'Never commit secrets, API keys, or credentials.',
     'Never modify lockfiles directly; let the build do it.',
   ],
+
+  // Retry caps and timeouts applied to every task that doesn't override
+  // them in its own contract. Defaults: maxAttempts=4, maxReviewIterations=3.
+  // limits: {
+  //   maxAttempts: 4,            // implementer attempts before giving up
+  //   maxReviewIterations: 3,    // reviewer rounds before final-verify
+  //   agentTurnTimeoutMs: 30 * 60 * 1000,  // per-call timeout (default 30 min)
+  // },
 })
 `
 
@@ -262,6 +270,10 @@ For each task, declare:
 - Don't touch X
 - Must use Y
 - Preserve Z
+
+## Retry caps
+
+Each task has a budget for implementer attempts (\`max_attempts\`) and reviewer iterations (\`max_review_iterations\`). Per-task fields are optional - omit them to inherit the manifest's \`limits\`, which itself falls back to the built-in defaults (4 attempts, 3 reviewer iterations). Set per-task only when one task warrants a different cap.
 `
 
 const EXAMPLE_TASKS_TEMPLATE = `[
@@ -279,9 +291,7 @@ const EXAMPLE_TASKS_TEMPLATE = `[
       "It contains a one-line greeting"
     ],
     "attempts": 0,
-    "max_attempts": 4,
     "review_iterations": 0,
-    "max_review_iterations": 3,
     "status": "pending"
   }
 ]

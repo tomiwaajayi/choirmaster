@@ -96,6 +96,38 @@ const REVIEWER_TOOLS = [
 ]
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Limit resolution
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Effective max-implementer-attempts for a task. Per-task override wins,
+ * then manifest `limits.maxAttempts`, then the built-in default. Resolved
+ * fresh at each use so a manifest edit takes effect on the next run for
+ * tasks that didn't set their own value.
+ */
+export function resolveMaxAttempts(
+  task: { max_attempts?: number },
+  config: { limits?: { maxAttempts?: number } },
+): number {
+  return task.max_attempts
+    ?? config.limits?.maxAttempts
+    ?? DEFAULT_MAX_ATTEMPTS
+}
+
+/**
+ * Effective max-reviewer-iterations for a task. Same fallback chain as
+ * `resolveMaxAttempts`.
+ */
+export function resolveMaxReviewIterations(
+  task: { max_review_iterations?: number },
+  config: { limits?: { maxReviewIterations?: number } },
+): number {
+  return task.max_review_iterations
+    ?? config.limits?.maxReviewIterations
+    ?? DEFAULT_MAX_REVIEW_ITERATIONS
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // runTask
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -115,10 +147,11 @@ export async function runTask(
   const previousLastReviewIssues = task.last_review_issues ?? ''
 
   const logger = createTaskLogger(ctx.logsDir, task.id)
-  task.max_attempts = task.max_attempts || ctx.config.limits?.maxAttempts || DEFAULT_MAX_ATTEMPTS
-  task.max_review_iterations = task.max_review_iterations
-    || ctx.config.limits?.maxReviewIterations
-    || DEFAULT_MAX_REVIEW_ITERATIONS
+  // Resolve effective limits without mutating task. Per-task overrides win,
+  // then manifest limits, then the built-in defaults. This way a manifest
+  // limit change picks up immediately for tasks that didn't set their own.
+  const maxAttempts = resolveMaxAttempts(task, ctx.config)
+  const maxReviewIterations = resolveMaxReviewIterations(task, ctx.config)
 
   task.status = 'in_progress'
   task.paused_phase = undefined
@@ -196,17 +229,17 @@ export async function runTask(
   // attempt resumes onto that same attempt rather than blocking past max.
   const previousCompleted = task.completed_attempts ?? 0
   const startAttempt = previousCompleted + 1
-  if (startAttempt > task.max_attempts) {
+  if (startAttempt > maxAttempts) {
     return blockTask(
       ctx,
       state,
       task,
       logger,
-      `Max attempts (${task.max_attempts}) already exhausted before resume; reset the task to retry.`,
+      `Max attempts (${maxAttempts}) already exhausted before resume; reset the task to retry.`,
     )
   }
 
-  for (let attempt = startAttempt; attempt <= task.max_attempts; attempt++) {
+  for (let attempt = startAttempt; attempt <= maxAttempts; attempt++) {
     task.attempts = attempt
     saveState(ctx.runDir, state)
 
@@ -231,17 +264,23 @@ export async function runTask(
       return pauseForCapacity(ctx, state, task, logger, 'implementer', claude.capacitySignal ?? 'capacity hit', `attempt ${attempt}`)
     }
 
-    // The impl call returned cleanly. Whatever happens next (handoff
-    // missing, BLOCKED, scope violation, gate failure, success), this
-    // attempt has run a full cycle and counts toward the retry budget.
-    task.completed_attempts = attempt
-    saveState(ctx.runDir, state)
+    // Helper: an attempt is "completed" only after the full cycle
+    // (handoff processed + scope evaluated + gates evaluated). A kill
+    // anywhere before this marker leaves the attempt as not-yet-spent
+    // so resume gets to redo it. Any caller that decides to advance
+    // past this attempt (continue/return) calls markAttemptCompleted
+    // first.
+    const markAttemptCompleted = (): void => {
+      task.completed_attempts = attempt
+      saveState(ctx.runDir, state)
+    }
 
     const handoffResult = readHandoff(cwd, task.id)
     if (!handoffResult.data) {
       const why = handoffResult.reason ?? 'no handoff file written'
       logger.line(`Implementer attempt ${attempt}: ${why}. Treating as failed attempt.`)
       lastFailureSummary = `Handoff problem: ${why}`
+      markAttemptCompleted()
       continue
     }
     const handoff = handoffResult.data
@@ -250,11 +289,13 @@ export async function runTask(
     saveState(ctx.runDir, state)
 
     if (handoff.verdict === 'BLOCKED') {
+      markAttemptCompleted()
       return blockTask(ctx, state, task, logger, `Implementer blocked: ${handoff.notes}`)
     }
     if (handoff.verdict === 'NEEDS_FIXES') {
       logger.line(`Implementer reported NEEDS_FIXES on attempt ${attempt}; routing back as a fresh attempt.`)
       lastFailureSummary = handoff.notes || 'Implementer self-flagged NEEDS_FIXES'
+      markAttemptCompleted()
       continue
     }
 
@@ -277,6 +318,7 @@ export async function runTask(
       logger.block(`SCOPE VIOLATION (attempt ${attempt})`, `${summary}\n\nFull diff: ${diffPath}`)
       revertWorktree(cwd, task.base_sha)
       lastFailureSummary = `Scope violations:\n${summary}\nWorktree reverted. Stay strictly within allowed_paths and never edit forbidden_paths.`
+      markAttemptCompleted()
       continue
     }
 
@@ -287,10 +329,12 @@ export async function runTask(
       const failureSummary = summariseFailures(gateResult.results)
       logger.block(`GATES FAILED (attempt ${attempt})`, failureSummary)
       lastFailureSummary = failureSummary
+      markAttemptCompleted()
       continue
     }
 
-    // All green. Move to reviewer.
+    // All green. Cycle complete; mark and move to reviewer.
+    markAttemptCompleted()
     logger.block(`GATES PASSED (attempt ${attempt})`, 'All deterministic checks green.')
     task.review_iterations = 0
     saveState(ctx.runDir, state)
@@ -303,7 +347,7 @@ export async function runTask(
     state,
     task,
     logger,
-    `Max implementation attempts (${task.max_attempts}) exhausted - checks never went green.`,
+    `Max implementation attempts (${maxAttempts}) exhausted - checks never went green.`,
   )
 }
 
@@ -321,16 +365,17 @@ export async function runReviewerLoop(
   previousLastReviewIssues: string,
   logger: TaskLogger,
 ): Promise<ReviewerOutcome> {
+  const maxReviewIterations = resolveMaxReviewIterations(task, ctx.config)
   const startIter = previousReviewIterations > 0 ? previousReviewIterations + 1 : 1
-  if (startIter > task.max_review_iterations) {
-    task.blocked_reason = `Max review iterations (${task.max_review_iterations}) already exhausted.`
+  if (startIter > maxReviewIterations) {
+    task.blocked_reason = `Max review iterations (${maxReviewIterations}) already exhausted.`
     return 'blocked'
   }
 
   let lastReviewIssues = previousLastReviewIssues
   let runningSummary = implementerSummary
 
-  for (let iter = startIter; iter <= task.max_review_iterations; iter++) {
+  for (let iter = startIter; iter <= maxReviewIterations; iter++) {
     task.review_iterations = iter
     saveState(ctx.runDir, state)
 
@@ -433,7 +478,7 @@ export async function runReviewerLoop(
   // before declaring blocked. Catches the case where the last review iter
   // flagged a trivial issue the implementer already addressed.
   logger.block('FINAL VERIFY', `Reviewer iterations exhausted; running one final verification pass.`)
-  const verifyRun = await invokeReviewer(ctx, task, cwd, runningSummary, task.max_review_iterations + 1, logger, 'reviewer final-verify')
+  const verifyRun = await invokeReviewer(ctx, task, cwd, runningSummary, maxReviewIterations + 1, logger, 'reviewer final-verify')
   if (verifyRun.capacityHit) {
     pauseForCapacity(ctx, state, task, logger, 'reviewer', verifyRun.capacitySignal ?? 'capacity hit', 'final-verify')
     return 'paused'
@@ -442,7 +487,7 @@ export async function runReviewerLoop(
   if (!finalReviewResult.data) {
     const why = finalReviewResult.reason ?? 'no review file written'
     logger.line(`Final-verify reviewer: ${why}. Treating as BLOCKED.`)
-    task.blocked_reason = `Max review iterations (${task.max_review_iterations}) exceeded; final-verify problem: ${why}`
+    task.blocked_reason = `Max review iterations (${maxReviewIterations}) exceeded; final-verify problem: ${why}`
     return 'blocked'
   }
   const finalReview = finalReviewResult.data
@@ -453,7 +498,7 @@ export async function runReviewerLoop(
   if (finalReview.verdict === 'READY' && finalReview.issues.length > 0) {
     logger.line(`Final-verify returned READY with ${finalReview.issues.length} issue(s); strict mode treats this as BLOCKED.`)
   }
-  task.blocked_reason = `Max review iterations (${task.max_review_iterations}) exceeded; final-verify still BLOCKED.`
+  task.blocked_reason = `Max review iterations (${maxReviewIterations}) exceeded; final-verify still BLOCKED.`
   logger.block('FINAL VERIFY BLOCKED', finalReview.issues.map((i) => `  - [${i.severity}] ${i.description}`).join('\n'))
   return 'blocked'
 }
@@ -612,7 +657,7 @@ async function handlePostReview(
   if (outcome === 'blocked') {
     task.status = 'blocked'
     task.blocked_reason = task.blocked_reason
-      ?? `Reviewer iterations (${task.max_review_iterations}) exceeded.`
+      ?? `Reviewer iterations (${resolveMaxReviewIterations(task, ctx.config)}) exceeded.`
     logger.block('BLOCKED', task.blocked_reason)
     saveState(ctx.runDir, state)
     return

@@ -69,9 +69,19 @@ export interface Task {
    * final allowed attempt doesn't render the task unrecoverable.
    */
   completed_attempts?: number
-  max_attempts: number
+  /**
+   * Maximum implementer attempts for this task. Optional - when omitted,
+   * the runtime falls back to `ProjectConfig.limits.maxAttempts` and then
+   * to the built-in default. Set per-task only when one task warrants a
+   * different cap (e.g. a particularly tricky refactor).
+   */
+  max_attempts?: number
   review_iterations: number
-  max_review_iterations: number
+  /**
+   * Maximum reviewer iterations for this task. Optional - falls back to
+   * `ProjectConfig.limits.maxReviewIterations` then the built-in default.
+   */
+  max_review_iterations?: number
   status: TaskStatus
   /** Branch name the worktree was created from. Captured at worktree creation. */
   base_ref?: string

@@ -67,27 +67,32 @@ You also need the `claude` CLI installed and authenticated. ChoirMaster shells o
 ## Quickstart
 
 ```bash
-# in any project repo:
-choirmaster init                              # scaffold .choirmaster/
+# scaffold .choirmaster/ in your project
+choirmaster init
 
-# plan from a markdown file:
-$EDITOR .choirmaster/plans/refactor.md
-choirmaster plan ./plans/refactor.md          # decompose; plan-reviewer iterates
-choirmaster run ./plans/refactor.md           # execute every task
+# edit .choirmaster/manifest.ts (set base branch, gates, retry caps)
+# author tasks in .choirmaster/plans/<name>.tasks.json
+# (a worked example lives at .choirmaster/plans/example.tasks.json)
 
-# plan from GitHub issues:
-gh issue create --label ready-for-agent --title "..." --body "..."
-choirmaster run --label ready-for-agent
+# run every pending task in order
+choirmaster run .choirmaster/plans/example.tasks.json
 
-# pick agents per role:
-choirmaster run ./plans/foo.md \
-  --planner claude:opus \
-  --implementer codex \
-  --reviewer claude:opus
+# resume a paused or interrupted run
+choirmaster run --resume <run-id>
 
-# sandboxed in Docker:
-choirmaster run ./plans/foo.md --sandbox docker
+# skip blocked tasks instead of halting
+choirmaster run .choirmaster/plans/example.tasks.json --continue-on-blocked
+
+# leave each task on its branch (don't auto-merge into base)
+choirmaster run .choirmaster/plans/example.tasks.json --no-auto-merge
 ```
+
+### Coming soon
+
+- `choirmaster plan <plan.md>` - planner agent decomposes a markdown plan into a tasks file
+- `choirmaster run --label ready-for-agent` - GitHub-issue-driven plans
+- Per-role engine flags (`--implementer codex`, `--reviewer claude:opus`)
+- `--sandbox docker` for hard isolation
 
 ## Packages
 
