@@ -1,6 +1,6 @@
 {
   "name": "@choirmaster/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "ChoirMaster runtime: state machine, gate runner, worktree management, agent + sandbox interfaces",
   "type": "module",
   "main": "./dist/index.js",
