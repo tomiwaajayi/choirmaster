@@ -1,6 +1,6 @@
 {
   "name": "choirmaster",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Local orchestrator for AI coding agents. Drive multi-step refactors with scoped tasks, isolated worktrees, deterministic gates, and resumable runs.",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,7 +12,8 @@
     }
   },
   "bin": {
-    "choirmaster": "dist/cli.js"
+    "choirmaster": "dist/cli.js",
+    "cm": "dist/cli.js"
   },
   "files": [
     "dist",

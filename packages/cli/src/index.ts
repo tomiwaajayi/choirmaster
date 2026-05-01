@@ -46,6 +46,7 @@ const HELP = `choirmaster - agentic-coding orchestrator
 
 Usage:
   choirmaster <command> [options]
+  cm <command> [options]
 
 Commands:
   init [--force]                Scaffold .choirmaster/ in the current repo

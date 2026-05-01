@@ -71,6 +71,8 @@ npm install -g choirmaster
 
 If you install globally, still add ChoirMaster to the project as a dev dependency so `.choirmaster/manifest.ts` can resolve `import { ... } from 'choirmaster'`. If you install only in the project, use `npx choirmaster ...`.
 
+Every command can be run as `choirmaster` or the shorter `cm` alias.
+
 You also need the `claude` CLI installed and authenticated. The bundled Claude adapter shells out to it.
 
 ## Quickstart

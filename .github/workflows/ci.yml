@@ -60,6 +60,10 @@ jobs:
             throw new Error(`expected packed package name choirmaster, got ${pkg.name}`)
           }
 
+          if (pkg.bin?.choirmaster !== 'dist/cli.js' || pkg.bin?.cm !== 'dist/cli.js') {
+            throw new Error(`expected packed package to expose choirmaster and cm bins`)
+          }
+
           const runtimeDeps = Object.keys(pkg.dependencies ?? {})
           const leakedWorkspaceDeps = runtimeDeps.filter((name) => name.startsWith('@choirmaster/'))
           if (leakedWorkspaceDeps.length > 0) {
