@@ -43,7 +43,7 @@ Three layers:
 
 1. **Runtime** (`@choirmaster/core`) - state machine, retry caps, capacity pause/resume, worktree management, scope enforcement, gate runner, auto-merge with conflict abort. Project-agnostic.
 2. **Plugins** - pluggable `Agent` (Claude, Codex), `Sandbox` (worktree, Docker), `BranchPolicy`, gate factories.
-3. **Project config** - a typed `manifest.ts` per repo declares base branch, agent preferences, gates, prompt files. Plans live as markdown or GitHub issues.
+3. **Project config** - a typed `manifest.ts` per repo declares base branch, agent preferences, gates, and prompt files. Tasks files (`*.tasks.json`) live under `.choirmaster/plans/`. A planner agent that turns markdown plans or GitHub issues into tasks files is on the roadmap.
 
 ```
 .choirmaster/

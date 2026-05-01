@@ -204,17 +204,60 @@ export async function runTask(
   //   - explicit capacity pause set paused_phase to 'reviewer' or 'implementer_fix'
   //   - a kill left no paused_phase but review_iterations > 0 (we were past
   //     the implementer phase when the process died)
-  // In all of these the implementer has already produced a successful diff
-  // and gates have already passed; restarting the implementer would
-  // throw away that work.
   const wasInReviewerPhase
     = previousPausedPhase === 'reviewer'
     || previousPausedPhase === 'implementer_fix'
     || previousReviewIterations > 0
   if (wasInReviewerPhase) {
+    // Defensive re-check on kill resume.
+    //
+    // For paused_phase === 'reviewer' we KNOW gates passed (the reviewer
+    // call only fires after post-fix gates), so trust the worktree.
+    //
+    // For paused_phase === 'implementer_fix' OR an undefined-paused_phase
+    // kill, the fix call or post-fix gates may not have completed. Trusting
+    // the worktree here would let the reviewer approve a diff that never
+    // passed gates. Re-verify scope + gates against the current worktree
+    // before re-entering the reviewer; block on either failure with a
+    // clear "reset and retry" message.
+    if (previousPausedPhase !== 'reviewer') {
+      if (!task.base_sha) {
+        return blockTask(ctx, state, task, logger, 'Resume re-check: task.base_sha missing.')
+      }
+      const changed = getChangedFiles(cwd, task.base_sha)
+      const scope = effectiveScope(task, ctx.config.forbiddenPaths)
+      const violations = checkScope({
+        changedFiles: changed,
+        allowedPaths: scope.allowed,
+        forbiddenPaths: scope.forbidden,
+      })
+      if (violations.length > 0) {
+        const summary = violations.map((v) => `  - [${v.kind}] ${v.file}`).join('\n')
+        const fullDiff = captureFullDiff(cwd, task.base_sha)
+        const diffPath = join(ctx.logsDir, `${task.id}.scope-violation-resume-recheck.diff`)
+        writeFileSync(diffPath, fullDiff)
+        logger.block('RESUME RE-CHECK SCOPE VIOLATION', `${summary}\n\nFull diff: ${diffPath}`)
+        revertWorktree(cwd, task.base_sha)
+        return blockTask(ctx, state, task, logger, `Resume scope re-check failed:\n${summary}`)
+      }
+      const gates = task.gates.length > 0 ? task.gates : ctx.config.gates
+      const gateResult = runGates(gates, cwd)
+      if (!gateResult.ok) {
+        const summary = summariseFailures(gateResult.results)
+        logger.block('RESUME RE-CHECK GATES FAILED', summary)
+        return blockTask(
+          ctx,
+          state,
+          task,
+          logger,
+          `Resume gate re-check failed. The previous run was killed before post-fix gates completed; the worktree state cannot be trusted for review. \`choirmaster reset\` (when shipped) or manual investigation needed.`,
+        )
+      }
+    }
+
     const reason = previousPausedPhase
       ? `paused at ${previousPausedPhase}`
-      : `killed mid-reviewer (review_iterations=${previousReviewIterations})`
+      : `killed mid-reviewer (review_iterations=${previousReviewIterations}); scope and gates re-verified`
     logger.block('RESUME', `${reason}. Re-entering reviewer at iteration ${previousReviewIterations + 1}.`)
     const review = await runReviewerLoop(
       ctx,
