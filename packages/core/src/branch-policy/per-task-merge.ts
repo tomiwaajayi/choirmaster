@@ -13,7 +13,7 @@
  */
 
 import type { BranchPolicy, CompletionOutcome, Task } from '../types.js'
-import { resolveCurrentHead, tryMerge } from './_common.js'
+import { tryMerge } from './_common.js'
 
 export interface PerTaskMergeOptions {
   /**
@@ -29,9 +29,6 @@ export function perTaskMerge(options: PerTaskMergeOptions = {}): BranchPolicy {
 
   return {
     name: 'per-task-merge',
-    resolveBase(projectRoot: string) {
-      return resolveCurrentHead(projectRoot)
-    },
     async onTaskCompleted(projectRoot: string, task: Task): Promise<CompletionOutcome> {
       const baseRef = task.base_ref
       if (!baseRef) {

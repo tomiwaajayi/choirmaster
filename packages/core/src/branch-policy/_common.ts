@@ -3,7 +3,7 @@
  * to the package; consumers use the named factories.
  */
 
-import { currentBranch, git, revParse } from '../runtime/git.js'
+import { git, revParse } from '../runtime/git.js'
 
 export interface MergeAttemptOptions {
   ffOnly?: boolean
@@ -14,21 +14,6 @@ export interface MergeAttemptResult {
   ok: boolean
   sha?: string
   details?: string
-}
-
-export function resolveCurrentHead(projectRoot: string): { ref: string, sha: string } {
-  const ref = currentBranch(projectRoot)
-  if (!ref) {
-    throw new Error(
-      'Cannot resolve base ref: the project root is on a detached HEAD. '
-      + 'Check out a branch (e.g. `git checkout main`) before running.',
-    )
-  }
-  const sha = revParse(ref, projectRoot)
-  if (!sha) {
-    throw new Error(`Cannot resolve SHA for ${ref}.`)
-  }
-  return { ref, sha }
 }
 
 export function tryMerge(

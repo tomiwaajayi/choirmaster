@@ -64,16 +64,30 @@ export function isCleanTree(
 }
 
 /**
- * Lists files changed in `<base>...HEAD` for the worktree. Used for scope
- * checking after an agent turn.
+ * Lists every file the agent has touched since the base SHA: committed,
+ * staged, unstaged, and untracked. Agents are expected to leave edits
+ * uncommitted (the implementer prompt forbids them from running git
+ * commit) so a check that only inspects `<base>...HEAD` would miss the
+ * entire diff in the normal workflow. Scope enforcement requires the
+ * union view; this is the function callers should use.
  */
 export function getChangedFiles(worktreeCwd: string, baseSha: string): string[] {
-  const r = git(['diff', '--name-only', `${baseSha}...HEAD`], worktreeCwd)
-  if (r.status !== 0) return []
-  return r.stdout
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
+  const sources: string[][] = [
+    ['diff', '--name-only', `${baseSha}...HEAD`],
+    ['diff', '--name-only', '--cached'],
+    ['diff', '--name-only'],
+    ['ls-files', '--others', '--exclude-standard'],
+  ]
+  const seen = new Set<string>()
+  for (const args of sources) {
+    const r = git(args, worktreeCwd)
+    if (r.status !== 0) continue
+    for (const line of r.stdout.split('\n')) {
+      const trimmed = line.trim()
+      if (trimmed) seen.add(trimmed)
+    }
+  }
+  return [...seen]
 }
 
 /**
@@ -97,8 +111,15 @@ export function captureFullDiff(worktreeCwd: string, baseSha: string): string {
   ].join('\n')
 }
 
-/** Hard-resets and cleans a worktree. Used when scope enforcement triggers. */
-export function revertWorktree(worktreeCwd: string): void {
-  git(['reset', '--hard', 'HEAD'], worktreeCwd)
+/**
+ * Hard-resets and cleans a worktree. Pass `targetSha` to discard any
+ * commits the agent made (with bypassPermissions, the implementer prompt
+ * is advisory; an agent could ignore the rule and commit anyway). Without
+ * an explicit target, resets to HEAD - which is wrong if HEAD already
+ * contains the violation we are trying to undo.
+ */
+export function revertWorktree(worktreeCwd: string, targetSha?: string): void {
+  const target = targetSha ?? 'HEAD'
+  git(['reset', '--hard', target], worktreeCwd)
   git(['clean', '-fdx'], worktreeCwd)
 }

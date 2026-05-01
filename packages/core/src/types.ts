@@ -274,9 +274,11 @@ export type CompletionOutcome =
 
 export interface BranchPolicy {
   readonly name: string
-  /** What ref the worktree should fork from. Captured at worktree creation. */
-  resolveBase(projectRoot: string, task: Task): { ref: string; sha: string }
-  /** What to do after a successful task commit. */
+  /**
+   * What to do after a successful task commit. The runtime resolves the
+   * base ref (from `ProjectConfig.base`) and assigns it to `task.base_ref`
+   * before any policy method is called, so the policy can read it.
+   */
   onTaskCompleted(projectRoot: string, task: Task): Promise<CompletionOutcome>
 }
 

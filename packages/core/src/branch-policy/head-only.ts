@@ -10,14 +10,11 @@
  */
 
 import type { BranchPolicy, CompletionOutcome, Task } from '../types.js'
-import { resolveCurrentHead, tryMerge } from './_common.js'
+import { tryMerge } from './_common.js'
 
 export function headOnly(): BranchPolicy {
   return {
     name: 'head-only',
-    resolveBase(projectRoot: string) {
-      return resolveCurrentHead(projectRoot)
-    },
     async onTaskCompleted(projectRoot: string, task: Task): Promise<CompletionOutcome> {
       const baseRef = task.base_ref
       if (!baseRef) {

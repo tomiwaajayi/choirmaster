@@ -35,7 +35,7 @@ import type {
 import { commitWorktree } from './commit.js'
 import type { RuntimeContext } from './context.js'
 import { runGates, summariseFailures } from './gates.js'
-import { captureFullDiff, currentBranch, getChangedFiles, revertWorktree } from './git.js'
+import { captureFullDiff, currentBranch, getChangedFiles, revParse, revertWorktree } from './git.js'
 import { readHandoff, readReview } from './handoff.js'
 import { createTaskLogger, type TaskLogger } from './log.js'
 import {
@@ -91,18 +91,28 @@ export async function runTask(
   saveState(ctx.runDir, state)
   logger.block('TASK START', `${task.id} - ${task.title}\n${task.spec_section ?? ''}`)
 
-  // ── Worktree creation via Sandbox ─────────────────────────────────────────
-  // Resolve base ref via the branch policy, then ask the sandbox to set up
-  // the workspace. The sandbox uses task.base_ref to know where to fork.
-  try {
-    const base = ctx.config.branchPolicy.resolveBase(ctx.projectRoot, task)
-    task.base_ref = base.ref
-    task.base_sha = base.sha
-    saveState(ctx.runDir, state)
+  // ── Resolve base + sanity check root branch ───────────────────────────────
+  // The runtime owns base resolution: read it from the manifest, refuse to
+  // run if the project root has drifted off it. This prevents tasks from
+  // silently forking from a feature branch when the manifest says `main`.
+  const baseRef = ctx.config.base
+  const baseSha = revParse(baseRef, ctx.projectRoot)
+  if (!baseSha) {
+    return blockTask(ctx, state, task, logger, `Cannot resolve base ref '${baseRef}' to a SHA. Is the branch checked out and up to date?`)
   }
-  catch (err) {
-    return blockTask(ctx, state, task, logger, `resolveBase failed: ${(err as Error).message}`)
+  const rootBranch = currentBranch(ctx.projectRoot)
+  if (rootBranch !== baseRef) {
+    return blockTask(
+      ctx,
+      state,
+      task,
+      logger,
+      `Project root is on '${rootBranch ?? '(detached HEAD)'}', expected '${baseRef}' (per manifest.base). Switch to ${baseRef} before running.`,
+    )
   }
+  task.base_ref = baseRef
+  task.base_sha = baseSha
+  saveState(ctx.runDir, state)
 
   let cwd: string
   try {
@@ -130,7 +140,7 @@ export async function runTask(
       previousLastReviewIssues,
       logger,
     )
-    return handlePostReview(ctx, state, task, logger, review, previousLastSummary, options)
+    return handlePostReview(ctx, state, task, cwd, logger, review, previousLastSummary, options)
   }
 
   // ── Implementer attempt loop ──────────────────────────────────────────────
@@ -196,7 +206,7 @@ export async function runTask(
       const diffPath = join(ctx.logsDir, `${task.id}.scope-violation-attempt-${attempt}.diff`)
       writeFileSync(diffPath, fullDiff)
       logger.block(`SCOPE VIOLATION (attempt ${attempt})`, `${summary}\n\nFull diff: ${diffPath}`)
-      revertWorktree(cwd)
+      revertWorktree(cwd, task.base_sha)
       lastFailureSummary = `Scope violations:\n${summary}\nWorktree reverted. Stay strictly within allowed_paths and never edit forbidden_paths.`
       continue
     }
@@ -216,7 +226,7 @@ export async function runTask(
     task.review_iterations = 0
     saveState(ctx.runDir, state)
     const review = await runReviewerLoop(ctx, state, task, cwd, lastSummary, 0, '', logger)
-    return handlePostReview(ctx, state, task, logger, review, lastSummary, options)
+    return handlePostReview(ctx, state, task, cwd, logger, review, lastSummary, options)
   }
 
   return blockTask(
@@ -325,7 +335,7 @@ export async function runReviewerLoop(
       const diffPath = join(ctx.logsDir, `${task.id}.scope-violation-review-iter-${iter}.diff`)
       writeFileSync(diffPath, fullDiff)
       logger.block(`SCOPE VIOLATION (review iter ${iter})`, `${summary}\n\nFull diff: ${diffPath}`)
-      revertWorktree(cwd)
+      revertWorktree(cwd, task.base_sha)
       task.blocked_reason = `Scope violation after reviewer fix iter ${iter}.`
       return 'blocked'
     }
@@ -495,15 +505,16 @@ function blockTask(
   saveState(ctx.runDir, state)
 }
 
-function handlePostReview(
+async function handlePostReview(
   ctx: RuntimeContext,
   state: RunState,
   task: Task,
+  cwd: string,
   logger: TaskLogger,
   outcome: ReviewerOutcome,
   summary: string,
   options: RunTaskOptions,
-): void {
+): Promise<void> {
   if (outcome === 'paused') {
     // pauseForCapacity already saved state.
     return
@@ -517,7 +528,31 @@ function handlePostReview(
     return
   }
 
-  // READY: commit, then auto-merge via branch policy.
+  // READY: re-check scope one more time immediately before commit. The
+  // earlier checks (post-implementer, post-fix) trust that nothing else
+  // touched the worktree between then and now; this defends against any
+  // stray edit, races against late agent processes, and serves as the
+  // last gate before `git add -A` lands committed-everything.
+  if (!task.base_sha) {
+    return blockTask(ctx, state, task, logger, 'task.base_sha missing at commit time')
+  }
+  const finalChanged = getChangedFiles(cwd, task.base_sha)
+  const finalScope = effectiveScope(task, ctx.config.forbiddenPaths)
+  const finalViolations = checkScope({
+    changedFiles: finalChanged,
+    allowedPaths: finalScope.allowed,
+    forbiddenPaths: finalScope.forbidden,
+  })
+  if (finalViolations.length > 0) {
+    const summaryText = finalViolations.map((v) => `  - [${v.kind}] ${v.file}`).join('\n')
+    const fullDiff = captureFullDiff(cwd, task.base_sha)
+    const diffPath = join(ctx.logsDir, `${task.id}.scope-violation-pre-commit.diff`)
+    writeFileSync(diffPath, fullDiff)
+    logger.block('SCOPE VIOLATION (pre-commit)', `${summaryText}\n\nFull diff: ${diffPath}`)
+    revertWorktree(cwd, task.base_sha)
+    return blockTask(ctx, state, task, logger, `Pre-commit scope violation:\n${summaryText}`)
+  }
+
   let sha: string
   try {
     sha = commitWorktree(task, ctx.projectRoot, { summary })
@@ -539,8 +574,6 @@ function handlePostReview(
     return
   }
 
-  // Sanity check: the project root must still be on task.base_ref before
-  // attempting a merge. If the user switched branches mid-run, refuse.
   const rootBranch = currentBranch(ctx.projectRoot)
   if (rootBranch !== task.base_ref) {
     task.status = 'blocked'
@@ -550,24 +583,27 @@ function handlePostReview(
     return
   }
 
-  ctx.config.branchPolicy
-    .onTaskCompleted(ctx.projectRoot, task)
-    .then((outcomeKind: CompletionOutcome) => {
-      logger.block('BRANCH POLICY', formatCompletionOutcome(outcomeKind))
-      if (outcomeKind.kind === 'conflict' || outcomeKind.kind === 'failed') {
-        task.status = 'blocked'
-        task.blocked_reason = outcomeKind.kind === 'conflict'
-          ? `Auto-merge conflict: ${outcomeKind.details}`
-          : `Branch policy failed: ${outcomeKind.reason}`
-      }
-      saveState(ctx.runDir, state)
-    })
-    .catch((err: unknown) => {
+  // Await the branch policy. Without this, the next task could start
+  // before the merge lands, racing the merge against the next worktree's
+  // base. A late-arriving error could also flip an already-completed task
+  // back to blocked after the caller has moved on.
+  try {
+    const outcomeKind = await ctx.config.branchPolicy.onTaskCompleted(ctx.projectRoot, task)
+    logger.block('BRANCH POLICY', formatCompletionOutcome(outcomeKind))
+    if (outcomeKind.kind === 'conflict' || outcomeKind.kind === 'failed') {
       task.status = 'blocked'
-      task.blocked_reason = `Branch policy threw: ${(err as Error).message}`
-      logger.block('BLOCKED - BRANCH POLICY THREW', task.blocked_reason)
-      saveState(ctx.runDir, state)
-    })
+      task.blocked_reason = outcomeKind.kind === 'conflict'
+        ? `Auto-merge conflict: ${outcomeKind.details}`
+        : `Branch policy failed: ${outcomeKind.reason}`
+    }
+    saveState(ctx.runDir, state)
+  }
+  catch (err) {
+    task.status = 'blocked'
+    task.blocked_reason = `Branch policy threw: ${(err as Error).message}`
+    logger.block('BLOCKED - BRANCH POLICY THREW', task.blocked_reason)
+    saveState(ctx.runDir, state)
+  }
 }
 
 function formatCompletionOutcome(outcome: CompletionOutcome): string {
