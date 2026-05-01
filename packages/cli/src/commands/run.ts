@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import type { RunState, Task } from '@choirmaster/core'
-import { loadState, runTask, saveState } from '@choirmaster/core'
+import { loadState, runTask, saveState, validateTasksFile } from '@choirmaster/core'
 
 import { loadManifest } from '../manifest.js'
 
@@ -92,20 +92,15 @@ export async function runCommand(args: RunCommandArgs): Promise<number> {
       return 1
     }
 
-    const rawTasks = extractTasks(parsed)
-    if (rawTasks.length === 0) {
-      process.stderr.write('tasks file contains no tasks.\n')
-      return 1
+    const validation = validateTasksFile(parsed)
+    if (!validation.ok) {
+      process.stderr.write(`Invalid tasks file (${args.tasksFile}):\n`)
+      for (const e of validation.errors) {
+        process.stderr.write(`  - ${e}\n`)
+      }
+      return 64
     }
-
-    let tasks: Task[]
-    try {
-      tasks = topologicallySort(rawTasks)
-    }
-    catch (err) {
-      process.stderr.write(`${(err as Error).message}\n`)
-      return 1
-    }
+    const tasks: Task[] = validation.tasks
 
     runId = makeRunId()
     runDir = resolve(projectRoot, '.choirmaster/runs', runId)
@@ -180,60 +175,10 @@ export async function runCommand(args: RunCommandArgs): Promise<number> {
   return 0
 }
 
-/**
- * Topologically sort tasks by `depends_on`. Throws on cycles or unknown
- * dependency ids. Stable order: tasks with no deps preserve their input
- * order; dependents follow their last prerequisite.
- */
-function topologicallySort(tasks: Task[]): Task[] {
-  const byId = new Map<string, Task>()
-  for (const t of tasks) byId.set(t.id, t)
-
-  for (const t of tasks) {
-    for (const dep of t.depends_on ?? []) {
-      if (!byId.has(dep)) {
-        throw new Error(`Task ${t.id} depends_on ${dep}, but no such task exists in tasks.json.`)
-      }
-    }
-  }
-
-  const visited = new Set<string>()
-  const visiting = new Set<string>()
-  const sorted: Task[] = []
-
-  const visit = (task: Task): void => {
-    if (visited.has(task.id)) return
-    if (visiting.has(task.id)) {
-      throw new Error(`Dependency cycle detected involving ${task.id}.`)
-    }
-    visiting.add(task.id)
-    for (const dep of task.depends_on ?? []) {
-      const depTask = byId.get(dep)
-      if (depTask) visit(depTask)
-    }
-    visiting.delete(task.id)
-    visited.add(task.id)
-    sorted.push(task)
-  }
-
-  for (const task of tasks) visit(task)
-  return sorted
-}
-
 function makeRunId(): string {
   const now = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 23)
   const rand = Math.random().toString(36).slice(2, 6)
   return `${now}-${rand}`
-}
-
-function extractTasks(parsed: unknown): Task[] {
-  if (Array.isArray(parsed)) {
-    return parsed as Task[]
-  }
-  if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { tasks?: unknown }).tasks)) {
-    return (parsed as { tasks: Task[] }).tasks
-  }
-  throw new Error('tasks file must be a JSON array or an object with a "tasks" array.')
 }
 
 function printSummary(state: RunState, halted: boolean): void {
