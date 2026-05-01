@@ -1,0 +1,35 @@
+{
+  "name": "choirmaster-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ChoirMaster: an agentic-coding orchestrator that turns plans into committed work",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.30.3",
+  "scripts": {
+    "build": "pnpm -r --filter='./packages/*' build",
+    "typecheck": "pnpm -r --filter='./packages/*' typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint packages",
+    "clean": "pnpm -r --filter='./packages/*' clean && rm -rf node_modules"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tomiwaajayi/choirmaster.git"
+  },
+  "homepage": "https://github.com/tomiwaajayi/choirmaster#readme",
+  "bugs": {
+    "url": "https://github.com/tomiwaajayi/choirmaster/issues"
+  },
+  "license": "MIT",
+  "author": "Tomiwa Ajayi",
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
