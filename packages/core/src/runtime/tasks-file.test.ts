@@ -134,17 +134,39 @@ describe('validateTasksFile', () => {
     const errors = bad(validateTasksFile([
       { ...validTask, worktree: '../outside' },
     ]))
-    expect(errors.some((e) => e.includes('worktree') && e.includes('inside the project root'))).toBe(true)
+    expect(errors.some((e) => e.includes('worktree') && e.includes("'..'"))).toBe(true)
   })
 
-  it('rejects a worktree path that resolves above the project root after normalization', () => {
-    // `.choirmaster/wt/../../../escape` collapses to `../../escape` after
-    // posix normalization. Catch the post-normalization escape, not just
-    // the literal leading `../`.
+  it('rejects a worktree path with deeper escape sequences', () => {
     const errors = bad(validateTasksFile([
       { ...validTask, worktree: '.choirmaster/wt/../../../escape' },
     ]))
-    expect(errors.some((e) => e.includes('worktree') && e.includes('inside the project root'))).toBe(true)
+    expect(errors.some((e) => e.includes('worktree') && e.includes("'..'"))).toBe(true)
+  })
+
+  it("rejects '..' segments even when they normalize back to a safe path", () => {
+    // `a/../b` would resolve to the same directory as `b`. If we let
+    // the literal `a/../b` through, two tasks could index distinct
+    // worktree strings that collide on disk - exactly what the
+    // duplicate-worktree check is meant to prevent. Refusing any `..`
+    // segment keeps the indexed string equal to the on-disk path.
+    const errors = bad(validateTasksFile([
+      { ...validTask, worktree: 'a/../b' },
+    ]))
+    expect(errors.some((e) => e.includes('worktree') && e.includes("'..'"))).toBe(true)
+  })
+
+  it("rejects two worktree paths that resolve to the same directory after normalization", () => {
+    // The strict `..` rule above means both tasks fail validation; this
+    // test pins that no path in the list survives to silently collide
+    // on disk with another. Without strict `..` rejection (or path
+    // normalization at index time), the second task would slip through
+    // validation and crash mid-run in `git worktree add`.
+    const errors = bad(validateTasksFile([
+      { ...validTask, id: 'TASK-A', branch: 'task/a', worktree: '.choirmaster/wt/a' },
+      { ...validTask, id: 'TASK-B', branch: 'task/b', worktree: '.choirmaster/wt/x/../a' },
+    ]))
+    expect(errors.some((e) => e.includes("'..'"))).toBe(true)
   })
 
   it('rejects a Windows drive-rooted worktree path', () => {
@@ -152,14 +174,6 @@ describe('validateTasksFile', () => {
       { ...validTask, worktree: 'C:/escape' },
     ]))
     expect(errors.some((e) => e.includes('worktree') && e.includes('relative'))).toBe(true)
-  })
-
-  it('accepts a worktree path with safe `..` segments that stay inside', () => {
-    // `a/../b` collapses to `b` - still inside the project. Allowed.
-    const result = ok(validateTasksFile([
-      { ...validTask, worktree: 'a/../b' },
-    ]))
-    expect(result.tasks).toHaveLength(1)
   })
 
   it('flags depends_on referencing an unknown task', () => {

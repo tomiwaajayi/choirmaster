@@ -29,8 +29,6 @@
  * (depends_on before dependents) so the CLI can iterate it directly.
  */
 
-import { posix as posixPath } from 'node:path'
-
 import type { GateConfig, Task } from '../types.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -240,14 +238,22 @@ function requireNonEmptyString(
 /**
  * Validate a path field that the runtime resolves under the project root
  * (e.g. `task.worktree`, which becomes `join(projectRoot, value)` inside
- * the worktree sandbox). The check refuses anything that could escape:
- * absolute paths, Windows drive letters, and any sequence that normalizes
- * to start with `..` (e.g. `../foo` or `a/../../bar`).
+ * the worktree sandbox). The check refuses anything that could escape
+ * (absolute paths, Windows drive letters) and any `..` segment, even one
+ * that would normalize back to a safe path like `a/../b`.
  *
- * Without this check a malformed or generated tasks file could direct the
- * agent's worktree at arbitrary host paths, sidestepping every later
- * scope and gate guardrail because they all operate on the worktree
- * the user picked.
+ * The `..` rule is strict-by-design. Allowing safe-looking `..` like
+ * `a/../b` would let two tasks index distinct worktree strings that
+ * resolve to the same directory on disk - the second task's
+ * `git worktree add` would then collide mid-run, defeating the point of
+ * up-front validation. Forbidding `..` outright keeps the validated
+ * string equal to the on-disk path so the duplicate-worktree check is
+ * meaningful.
+ *
+ * Without this check a malformed or generated tasks file could direct
+ * the agent's worktree at arbitrary host paths, sidestepping every
+ * later scope and gate guardrail because they all operate on the
+ * worktree the user picked.
  */
 function requireSafeRelativePath(
   raw: Record<string, unknown>,
@@ -261,8 +267,7 @@ function requireSafeRelativePath(
     return null
   }
   // Normalize separators so backslashed paths get the same scrutiny on
-  // POSIX hosts, then run the path through posix.normalize so segments
-  // like `a/../b` collapse before the prefix check.
+  // POSIX hosts.
   const unified = v.replace(/\\/g, '/')
   if (unified.startsWith('/')) {
     errors.push(`${path}.${key} must be a relative path (got absolute '${v}')`)
@@ -272,9 +277,8 @@ function requireSafeRelativePath(
     errors.push(`${path}.${key} must be a relative path (got drive-rooted '${v}')`)
     return null
   }
-  const normalized = posixPath.normalize(unified)
-  if (normalized === '..' || normalized.startsWith('../')) {
-    errors.push(`${path}.${key} must stay inside the project root (got '${v}', resolves above project)`)
+  if (unified.split('/').includes('..')) {
+    errors.push(`${path}.${key} must not contain '..' segments (got '${v}'); use a direct path that stays inside the project`)
     return null
   }
   return v
