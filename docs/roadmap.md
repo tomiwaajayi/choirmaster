@@ -109,6 +109,7 @@ These are no longer roadmap items, but they shape the remaining work:
 - Sandbox prepare hook: `worktreeSandbox({ prepare: { command: 'pnpm install --frozen-lockfile' } })` runs once per fresh worktree before any agent turn. Prepare failure blocks the task immediately instead of consuming implementer attempts.
 - Duplicate gate-failure detection: two consecutive attempts with the same normalized failure signature block the task instead of burning the rest of the retry budget on an environment problem.
 - First successful self-dogfood: ChoirMaster ran a markdown plan against its own repo, generated tasks, ran sandbox prepare, passed `pnpm typecheck` / `pnpm test` / `pnpm build` gates, and merged a docs task branch onto `main`.
+- First `choirmaster doctor`: fast setup diagnostics for repo state, manifest loading, base branch, prompt files, configured agents, Claude CLI presence, Anthropic DNS, gates, sandbox, gitignore, and forbidden paths.
 
 ## Phase 0: Finish the Trust Core
 
@@ -116,7 +117,7 @@ Goal: keep the state machine safe, recoverable, and regression-tested as real do
 
 Remaining work:
 
-- Preflight + diagnostics layer: distinguish capacity, missing CLI auth, offline network, DNS/API failure, and true timeout. Today several of these collapse into generic "no output" or "timeout" behaviour, which is confusing when a user comes back to a paused run AFK. The runtime should classify each failure mode and surface the right remediation (re-auth, reconnect, reset, retry, wait).
+- Deep preflight + diagnostics layer: the first `doctor` command exists, but the runtime still needs to distinguish capacity, missing CLI auth, offline network, DNS/API failure, and true timeout during actual agent turns. Today several of these collapse into generic "no output" or "timeout" behaviour, which is confusing when a user comes back to a paused run AFK. The runtime should classify each failure mode and surface the right remediation (re-auth, reconnect, reset, retry, wait).
 - Continue tightening blocked and resume messages as new failure modes appear.
 - Keep adding focused state-machine regression tests whenever a resume, gate, reviewer, sandbox, or planner guard bug is found.
 
@@ -134,6 +135,7 @@ Goal: make the markdown-first CLI surface excellent for real local work.
 Core commands:
 
 - `choirmaster init`
+- `choirmaster doctor`
 - `choirmaster run <plan.md>`
 - `choirmaster plan <plan.md>`
 - `choirmaster run <tasks.json>` as the advanced/debug path
@@ -216,7 +218,6 @@ Commands to add:
 - `choirmaster inspect <run-id> <task-id>`
 - `choirmaster retry <run-id> <task-id>`
 - `choirmaster reset <run-id> <task-id>`
-- `choirmaster doctor`
 
 Workflow improvements:
 

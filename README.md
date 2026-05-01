@@ -34,6 +34,7 @@ Solo developers, indie hackers, and small teams running scoped docs work, tests,
 - **Project-wide safeguards.** `forbiddenPaths` and `strictInstructions` declared once in your manifest apply to every task: `.env*` always blocked, "never run pnpm install" always in the prompt.
 - **Deterministic gates.** Typecheck, test, audit scripts run after every implementer turn. Failures route back to the implementer with the failure summary; the reviewer never sees broken code.
 - **Sandbox prepare hook.** Fresh worktrees can run setup once before any agent turn, e.g. `pnpm install --frozen-lockfile`, so real project gates have dependencies available.
+- **Setup diagnostics.** `choirmaster doctor` checks the repo, manifest, branch, prompts, agents, gates, sandbox, gitignore, and network basics before you spend a model turn.
 - **Recoverable everywhere.** Hit Claude's rate limit mid-run? The orchestrator pauses cleanly and resumes from the same phase on the next run. Killed the process? `choirmaster run --resume <run-id>` picks up where it left off.
 - **Configurable branch policy.** Completed tasks can merge into the base branch, fast-forward the base, or stay on task branches for manual review.
 - **Per-task git worktrees.** Tasks never touch your main checkout. Inspect any task's branch independently.
@@ -85,6 +86,9 @@ choirmaster init
 # write what you want done in markdown
 # (a worked example lives at .choirmaster/plans/example.md)
 
+# check your setup before invoking an agent
+choirmaster doctor
+
 # plan-then-run from a markdown plan: the planner agent compiles it
 # into a validated tasks file, the runtime executes it
 choirmaster run .choirmaster/plans/example.md
@@ -105,7 +109,7 @@ choirmaster run .choirmaster/plans/example.md --no-auto-merge
 
 ### Where it's going
 
-- Plan authoring help: templates, `doctor`, or an interactive plan writer that helps turn rough intent into a strong markdown plan
+- Plan authoring help: templates or an interactive plan writer that helps turn rough intent into a strong markdown plan
 - Plan reviewer loop: a second agent reviews the generated task contract before execution
 - Safer plan-level branch flow, likely `current branch -> plan branch -> task branches -> plan branch`
 - Daily workflow commands: `status`, `logs`, `inspect`, `retry`, and `reset`

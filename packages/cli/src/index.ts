@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { doctorCommand } from './commands/doctor.js'
 import { initCommand } from './commands/init.js'
 import { planCommand } from './commands/plan.js'
 import { runCommand } from './commands/run.js'
@@ -49,6 +50,7 @@ Usage:
   cm <command> [options]
 
 Commands:
+  doctor                         Check repo, manifest, agents, gates, and network
   init [--force]                Scaffold .choirmaster/ in the current repo
   plan <plan.md>                Decompose a markdown plan into a tasks file
   run <plan.md|tasks.json>      Plan-then-run a markdown plan, or run a tasks file
@@ -102,6 +104,10 @@ export async function main(argv: string[]): Promise<number> {
     return initCommand({
       force: args.includes('--force') || args.includes('-f'),
     })
+  }
+
+  if (command === 'doctor') {
+    return doctorCommand()
   }
 
   if (command === 'plan') {
