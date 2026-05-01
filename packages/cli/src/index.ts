@@ -117,7 +117,11 @@ export async function main(argv: string[]): Promise<number> {
       consumed.add(outputIdx)
       consumed.add(outputIdx + 1)
     }
-    const planFile = argList.find((a, i) => !consumed.has(i) && !a.startsWith('--'))
+    // Skip anything that looks like an option (starts with `-`), not just
+    // double-dash long flags. Otherwise `choirmaster plan -f plan.md`
+    // would pick `-f` as the positional plan file and fail before the
+    // real path is read.
+    const planFile = argList.find((a, i) => !consumed.has(i) && !a.startsWith('-'))
     if (!planFile) {
       process.stderr.write('Usage: choirmaster plan <plan.md> [--output <tasks.json>] [--force]\n')
       return 64

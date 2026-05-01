@@ -62,7 +62,7 @@ export function effectiveScope(
  * path patterns task contracts use; the runtime keeps the regex-from-glob
  * conversion explicit so the behaviour is predictable.
  */
-function matchesGlob(path: string, glob: string): boolean {
+export function matchesGlob(path: string, glob: string): boolean {
   if (glob === path) return true
 
   // `prefix/**` matches `prefix` itself or anything under `prefix/`.

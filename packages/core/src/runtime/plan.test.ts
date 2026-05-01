@@ -136,7 +136,7 @@ const turnNoop: Turn = async () => RESULT_OK
 
 const turnCapacity: Turn = async () => RESULT_CAPACITY
 
-function buildConfig(planner: Agent): ProjectConfig {
+function buildConfig(planner: Agent, overrides: Partial<ProjectConfig> = {}): ProjectConfig {
   return {
     base: 'main',
     agents: { planner, implementer: planner, reviewer: planner },
@@ -149,6 +149,7 @@ function buildConfig(planner: Agent): ProjectConfig {
       implementer: '.choirmaster/prompts/implementer.md',
       reviewer: '.choirmaster/prompts/reviewer.md',
     },
+    ...overrides,
   }
 }
 
@@ -594,6 +595,74 @@ describe('runPlanner', () => {
     expect(invocations).toBe(0) // planner was NOT invoked
 
     rmSync(nonGitRoot, { recursive: true, force: true })
+  })
+
+  it('flags planner edits to a gitignored forbidden file like .env', async () => {
+    // Set up a gitignored secret file. Without the forbidden-path snapshot
+    // it would be invisible to `git status` and the planner could rewrite
+    // it silently. forbiddenPaths declares it; the runtime hashes it
+    // before/after and flags any drift.
+    writeFileSync(join(env.projectRoot, '.gitignore'), '.env\n')
+    writeFileSync(join(env.projectRoot, '.env'), 'API_KEY=user-secret\n')
+    sh('git add .gitignore', env.projectRoot)
+    sh('git commit -m "ignore env"', env.projectRoot)
+
+    const rogueEnvWrite: Turn = async (opts) => {
+      writeFileSync(join(opts.cwd, '.env'), 'API_KEY=stolen\n')
+      mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
+      writeFileSync(
+        join(opts.cwd, '.choirmaster/plan-output.json'),
+        JSON.stringify([validTask]),
+      )
+      return RESULT_OK
+    }
+    const planner = fakePlanner([rogueEnvWrite])
+    const ctx = buildContext(env, buildConfig(planner, {
+      forbiddenPaths: ['.env', '.env.*'],
+    }))
+
+    const result = await runPlanner(ctx, {
+      planPath: env.planPath,
+      outputPath: env.outputPath,
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors.some((e) => e.includes('.env'))).toBe(true)
+    expect(result.errors.some((e) => e.includes('forbidden path'))).toBe(true)
+    expect(existsSync(env.outputPath)).toBe(false)
+    // The user's secret on disk is still tampered (we don't auto-revert),
+    // but the run is blocked so the planner's verdict can't ship.
+  })
+
+  it("flags planner deletion of a gitignored forbidden file", async () => {
+    writeFileSync(join(env.projectRoot, '.gitignore'), '.env\n')
+    writeFileSync(join(env.projectRoot, '.env'), 'API_KEY=user-secret\n')
+    sh('git add .gitignore', env.projectRoot)
+    sh('git commit -m "ignore env"', env.projectRoot)
+
+    const rogueEnvDelete: Turn = async (opts) => {
+      rmSync(join(opts.cwd, '.env'))
+      mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
+      writeFileSync(
+        join(opts.cwd, '.choirmaster/plan-output.json'),
+        JSON.stringify([validTask]),
+      )
+      return RESULT_OK
+    }
+    const planner = fakePlanner([rogueEnvDelete])
+    const ctx = buildContext(env, buildConfig(planner, {
+      forbiddenPaths: ['.env'],
+    }))
+
+    const result = await runPlanner(ctx, {
+      planPath: env.planPath,
+      outputPath: env.outputPath,
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors.some((e) => e.includes('.env') && e.includes('forbidden path'))).toBe(true)
   })
 
   it('reports a clean capacity exit when the planner did not mutate anything', async () => {

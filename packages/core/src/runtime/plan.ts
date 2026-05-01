@@ -24,6 +24,7 @@ import type { RuntimeContext } from './context.js'
 import { git } from './git.js'
 import { ensureParent, type TaskLogger } from './log.js'
 import { buildSystemPrompt, loadPromptFile } from './prompt.js'
+import { matchesGlob } from './scope.js'
 import { validateTasksFile } from './tasks-file.js'
 
 export const PLAN_OUTPUT_RELATIVE_PATH = '.choirmaster/plan-output.json'
@@ -153,6 +154,16 @@ export async function runPlanner(
     }
   }
 
+  // Hash the forbidden-path files alongside the git-status snapshot.
+  // Ignored files (e.g. `.env`) never appear in `git status`, so the
+  // status-only guard would miss a planner that overwrote a secret. The
+  // manifest's `forbiddenPaths` is the user-controlled allowlist of "this
+  // must never change" globs; we expand them against the project tree
+  // (including ignored files) and hash each match. Any change to a
+  // matched file post-planner is rogue, regardless of git visibility.
+  const forbiddenPaths = ctx.config.forbiddenPaths ?? []
+  const baselineForbidden = forbiddenPathSnapshot(ctx.projectRoot, forbiddenPaths)
+
   logger?.line(`Invoking ${planner.name} (planner) in ${ctx.projectRoot}`)
   const t0 = Date.now()
   const result = await planner.invoke(
@@ -171,12 +182,16 @@ export async function runPlanner(
 
   // Project-root mutation guard. The only path the planner is allowed to
   // touch is `.choirmaster/plan-output.json`. Anything else - source
-  // edits, gitignore tweaks, new untracked files - is treated as a
-  // contract violation. This check fires BEFORE the capacity early
-  // return: a planner that dirties source files and then signals
-  // capacity must still surface those rogue paths to the user, otherwise
-  // the project root is left dirty with no error trace.
-  const rogue = unauthorizedChanges(ctx.projectRoot, baselineStatus)
+  // edits, gitignore tweaks, new untracked files, or any forbidden-path
+  // file (including ignored secrets) - is treated as a contract
+  // violation. This check fires BEFORE the capacity early return: a
+  // planner that dirties source files and then signals capacity must
+  // still surface those rogue paths to the user, otherwise the project
+  // root is left dirty with no error trace.
+  const rogue = [
+    ...unauthorizedChanges(ctx.projectRoot, baselineStatus),
+    ...forbiddenPathChanges(ctx.projectRoot, forbiddenPaths, baselineForbidden),
+  ]
   if (rogue.length > 0) {
     const errors = [
       'Planner mutated files outside the allowed planner-output path. Aborting before writing tasks.json.',
@@ -375,6 +390,79 @@ function unauthorizedChanges(cwd: string, before: Map<string, StatusEntry>): str
     rogue.push(path)
   }
   return rogue
+}
+
+/**
+ * Snapshot every file in the project tree that matches one of the
+ * manifest's `forbiddenPaths` globs, regardless of git visibility. This
+ * complements the git-status guard: ignored files like `.env` are
+ * invisible to `git status`, but they're exactly the high-risk paths a
+ * forbiddenPaths list tends to cover. A path-string -> hash map is
+ * sufficient here; we don't need a status code because we only care
+ * whether the file's content (or existence) changed.
+ */
+function forbiddenPathSnapshot(
+  projectRoot: string,
+  forbiddenPaths: string[],
+): Map<string, string> {
+  const map = new Map<string, string>()
+  if (forbiddenPaths.length === 0) return map
+
+  // List every file in the worktree git knows about: tracked + untracked
+  // (incl. directory contents) + ignored. The combined set covers the
+  // patterns most forbiddenPaths target (`.env`, lockfiles, CI configs)
+  // without us walking node_modules from scratch.
+  const candidates = enumerateAllProjectFiles(projectRoot)
+  for (const path of candidates) {
+    if (!forbiddenPaths.some((g) => matchesGlob(path, g))) continue
+    map.set(path, hashFileSafe(join(projectRoot, path)))
+  }
+  return map
+}
+
+/**
+ * Compare baseline forbidden-path hashes against a fresh re-snapshot.
+ * Returns rogue forbidden paths whose content changed, were created, or
+ * were removed by the planner. Same union-of-paths rule as the git
+ * mutation guard so disappearance counts as much as appearance.
+ */
+function forbiddenPathChanges(
+  projectRoot: string,
+  forbiddenPaths: string[],
+  before: Map<string, string>,
+): string[] {
+  if (forbiddenPaths.length === 0) return []
+  const after = forbiddenPathSnapshot(projectRoot, forbiddenPaths)
+  const rogue: string[] = []
+  const allPaths = new Set<string>([...before.keys(), ...after.keys()])
+  for (const path of allPaths) {
+    if (path === PLAN_OUTPUT_RELATIVE_PATH) continue
+    if (before.get(path) === after.get(path)) continue
+    rogue.push(`${path} (forbidden path)`)
+  }
+  return rogue
+}
+
+/**
+ * Union of tracked files, untracked files (including those inside
+ * untracked directories), and ignored files. Used to enumerate every
+ * file the forbiddenPaths globs could match against.
+ *
+ * `git ls-files -coi --exclude-standard` returns the union directly:
+ *   -c: cached (tracked)
+ *   -o: others (untracked)
+ *   -i: include ignored
+ *   --exclude-standard: respect .gitignore for the categorization
+ */
+function enumerateAllProjectFiles(projectRoot: string): string[] {
+  const r = git(['ls-files', '-coi', '--exclude-standard'], projectRoot)
+  if (r.status !== 0) return []
+  const set = new Set<string>()
+  for (const line of r.stdout.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed) set.add(trimmed)
+  }
+  return [...set]
 }
 
 function streamEventToLogger(logger: TaskLogger | undefined, event: AgentEvent): void {
