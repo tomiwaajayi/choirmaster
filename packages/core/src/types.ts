@@ -244,9 +244,18 @@ export interface SandboxHandle {
   cleanup?: () => Promise<void>
 }
 
+export interface SandboxSetupOptions {
+  /**
+   * Allow reusing an existing sandbox at the task's worktree path. The
+   * runtime sets this to true when resuming a `waiting_for_capacity`
+   * task; users can also force it via the CLI's --reuse-worktree flag.
+   */
+  allowReuse?: boolean
+}
+
 export interface Sandbox {
   readonly name: string
-  setup(task: Task, projectRoot: string): Promise<SandboxHandle>
+  setup(task: Task, projectRoot: string, options?: SandboxSetupOptions): Promise<SandboxHandle>
   teardown?(handle: SandboxHandle): Promise<void>
 }
 

@@ -9,33 +9,34 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { git } from '../runtime/git.js'
-import type { Sandbox, SandboxHandle, Task } from '../types.js'
+import type { Sandbox, SandboxHandle, SandboxSetupOptions, Task } from '../types.js'
 
 export interface WorktreeSandboxOptions {
   /**
-   * Allow reusing an existing worktree at `task.worktree`. Useful when
-   * resuming a paused task; refuses by default to surface stale state.
+   * Default for `allowReuse` when the runtime doesn't pass an explicit
+   * setup-time value. The runtime overrides this on capacity resume so
+   * paused worktrees aren't rejected mid-run.
    */
   allowReuse?: boolean
 }
 
-export function worktreeSandbox(options: WorktreeSandboxOptions = {}): Sandbox {
+export function worktreeSandbox(factoryOptions: WorktreeSandboxOptions = {}): Sandbox {
   return {
     name: 'worktree',
-    async setup(task: Task, projectRoot: string): Promise<SandboxHandle> {
+    async setup(task: Task, projectRoot: string, options?: SandboxSetupOptions): Promise<SandboxHandle> {
       if (!task.base_ref) {
         throw new Error(
-          'worktreeSandbox: task.base_ref is required. The orchestration loop '
-          + 'must call BranchPolicy.resolveBase and assign base_ref/base_sha to '
-          + 'the task before invoking Sandbox.setup.',
+          'worktreeSandbox: task.base_ref is required. The runtime must '
+          + 'resolve and assign base_ref/base_sha before calling Sandbox.setup.',
         )
       }
       const worktreePath = join(projectRoot, task.worktree)
+      const allowReuse = options?.allowReuse ?? factoryOptions.allowReuse ?? false
 
       if (existsSync(worktreePath)) {
-        if (!options.allowReuse) {
+        if (!allowReuse) {
           throw new Error(
-            `Worktree already exists at ${task.worktree}. Pass allowReuse: true `
+            `Worktree already exists at ${task.worktree}. Pass --reuse-worktree, `
             + `or remove it with \`git worktree remove ${task.worktree}\`.`,
           )
         }

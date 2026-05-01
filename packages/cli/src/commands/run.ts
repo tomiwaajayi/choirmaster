@@ -45,9 +45,18 @@ export async function runCommand(args: RunCommandArgs): Promise<number> {
     return 1
   }
 
-  const tasks = extractTasks(parsed)
-  if (tasks.length === 0) {
+  const rawTasks = extractTasks(parsed)
+  if (rawTasks.length === 0) {
     process.stderr.write('tasks file contains no tasks.\n')
+    return 1
+  }
+
+  let tasks: Task[]
+  try {
+    tasks = topologicallySort(rawTasks)
+  }
+  catch (err) {
+    process.stderr.write(`${(err as Error).message}\n`)
     return 1
   }
 
@@ -60,7 +69,9 @@ export async function runCommand(args: RunCommandArgs): Promise<number> {
     return 1
   }
 
-  const runId = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  // Run id includes milliseconds + a 4-char random suffix so two runs in
+  // the same second don't collide (race-prone with short tasks).
+  const runId = makeRunId()
   const runDir = resolve(projectRoot, '.choirmaster/runs', runId)
   const logsDir = resolve(runDir, 'logs')
   mkdirSync(logsDir, { recursive: true })
@@ -82,18 +93,38 @@ export async function runCommand(args: RunCommandArgs): Promise<number> {
   const ctx = { projectRoot, runDir, logsDir, config }
 
   let halted = false
+  const blockedIds = new Set<string>()
   for (const task of tasks) {
     if (task.status === 'completed') continue
+
+    // Skip tasks whose declared dependencies blocked. With
+    // --continue-on-blocked the loop keeps running, but a task can't
+    // meaningfully execute when its prereqs failed.
+    if (task.depends_on) {
+      const unmet = task.depends_on.filter((id) => blockedIds.has(id))
+      if (unmet.length > 0) {
+        task.status = 'blocked'
+        task.blocked_reason = `Skipped: dependency blocked: ${unmet.join(', ')}`
+        blockedIds.add(task.id)
+        process.stdout.write(`\n=== ${task.id}: skipped (deps blocked: ${unmet.join(', ')}) ===\n`)
+        saveState(runDir, state)
+        continue
+      }
+    }
+
     process.stdout.write(`\n=== ${task.id}: ${task.title} ===\n`)
     await runTask(ctx, state, task, {
       allowReuseWorktree: args.reuseWorktree ?? false,
       skipAutoMerge: args.skipAutoMerge ?? false,
     })
-    if (task.status === 'blocked' || task.status === 'waiting_for_capacity') {
-      if (task.status === 'waiting_for_capacity' || !args.continueOnBlocked) {
-        halted = true
-        break
-      }
+    if (task.status === 'blocked') blockedIds.add(task.id)
+    if (task.status === 'waiting_for_capacity') {
+      halted = true
+      break
+    }
+    if (task.status === 'blocked' && !args.continueOnBlocked) {
+      halted = true
+      break
     }
   }
 
@@ -101,8 +132,59 @@ export async function runCommand(args: RunCommandArgs): Promise<number> {
   state.current_task = null
   saveState(runDir, state)
 
+  // Non-zero exit on any non-success state. CI needs to see capacity
+  // pauses as failures even though they're recoverable.
   const blocked = state.tasks.filter((t) => t.status === 'blocked').length
-  return blocked > 0 ? 2 : 0
+  const waiting = state.tasks.filter((t) => t.status === 'waiting_for_capacity').length
+  if (blocked > 0) return 2
+  if (waiting > 0) return 3
+  return 0
+}
+
+/**
+ * Topologically sort tasks by `depends_on`. Throws on cycles or unknown
+ * dependency ids. Stable order: tasks with no deps preserve their input
+ * order; dependents follow their last prerequisite.
+ */
+function topologicallySort(tasks: Task[]): Task[] {
+  const byId = new Map<string, Task>()
+  for (const t of tasks) byId.set(t.id, t)
+
+  for (const t of tasks) {
+    for (const dep of t.depends_on ?? []) {
+      if (!byId.has(dep)) {
+        throw new Error(`Task ${t.id} depends_on ${dep}, but no such task exists in tasks.json.`)
+      }
+    }
+  }
+
+  const visited = new Set<string>()
+  const visiting = new Set<string>()
+  const sorted: Task[] = []
+
+  const visit = (task: Task): void => {
+    if (visited.has(task.id)) return
+    if (visiting.has(task.id)) {
+      throw new Error(`Dependency cycle detected involving ${task.id}.`)
+    }
+    visiting.add(task.id)
+    for (const dep of task.depends_on ?? []) {
+      const depTask = byId.get(dep)
+      if (depTask) visit(depTask)
+    }
+    visiting.delete(task.id)
+    visited.add(task.id)
+    sorted.push(task)
+  }
+
+  for (const task of tasks) visit(task)
+  return sorted
+}
+
+function makeRunId(): string {
+  const now = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 23)
+  const rand = Math.random().toString(36).slice(2, 6)
+  return `${now}-${rand}`
 }
 
 function extractTasks(parsed: unknown): Task[] {

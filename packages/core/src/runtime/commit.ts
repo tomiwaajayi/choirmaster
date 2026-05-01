@@ -3,12 +3,14 @@
  * scope check has already run, so the diff is known-clean), creates a
  * commit with a structured message, and returns the commit SHA so the
  * branch policy can take over.
+ *
+ * Takes the SandboxHandle directly so non-worktree sandboxes (e.g. Docker
+ * with a bind-mounted worktree at a different cwd) commit in the right
+ * place without the caller reconstructing the path from task.worktree.
  */
 
-import { join } from 'node:path'
-
 import { git, revParse } from './git.js'
-import type { Task } from '../types.js'
+import type { SandboxHandle, Task } from '../types.js'
 
 export interface CommitOptions {
   /** Optional summary text added under the commit subject. */
@@ -21,10 +23,10 @@ export interface CommitOptions {
 
 export function commitWorktree(
   task: Task,
-  projectRoot: string,
+  handle: SandboxHandle,
   options: CommitOptions = {},
 ): string {
-  const cwd = join(projectRoot, task.worktree)
+  const cwd = handle.cwd
 
   const stageResult = git(['add', '-A'], cwd)
   if (stageResult.status !== 0) {

@@ -29,6 +29,7 @@ import type {
   Handoff,
   Review,
   RunState,
+  SandboxHandle,
   Task,
 } from '../types.js'
 
@@ -59,6 +60,40 @@ export type ReviewerOutcome = 'ready' | 'blocked' | 'paused'
 
 const DEFAULT_MAX_ATTEMPTS = 4
 const DEFAULT_MAX_REVIEW_ITERATIONS = 3
+const DEFAULT_AGENT_TURN_TIMEOUT_MS = 30 * 60 * 1000
+
+/**
+ * Tool allowlists passed to agent.invoke. Tighter than `bypassPermissions`
+ * alone: even with bypass on, the underlying CLI rejects anything not in
+ * this list. The implementer needs Read/Write/Edit/Glob/Grep + a bounded
+ * Bash subset for inspection; the reviewer is read-only.
+ */
+const IMPLEMENTER_TOOLS = [
+  'Read', 'Write', 'Edit', 'MultiEdit', 'Glob', 'Grep',
+  'Bash(git status:*)',
+  'Bash(git diff:*)',
+  'Bash(git log:*)',
+  'Bash(git ls-files:*)',
+  'Bash(grep:*)',
+  'Bash(find:*)',
+  'Bash(rg:*)',
+  'Bash(cat:*)',
+  'Bash(ls:*)',
+  'Bash(wc:*)',
+]
+
+const REVIEWER_TOOLS = [
+  'Read', 'Glob', 'Grep',
+  'Bash(git diff:*)',
+  'Bash(git log:*)',
+  'Bash(git ls-files:*)',
+  'Bash(grep:*)',
+  'Bash(rg:*)',
+  'Bash(cat:*)',
+  'Bash(ls:*)',
+  'Bash(wc:*)',
+  'Bash(git status:*)',
+]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // runTask
@@ -115,10 +150,15 @@ export async function runTask(
   saveState(ctx.runDir, state)
 
   let cwd: string
+  let sandboxHandle: SandboxHandle
   try {
-    const handle = await ctx.config.sandbox.setup(task, ctx.projectRoot)
-    cwd = handle.cwd
-    logger.line(`Sandbox ready at ${handle.cwd} (base ${task.base_ref}@${task.base_sha?.slice(0, 8)})`)
+    // Auto-reuse the worktree when resuming a capacity pause - the
+    // worktree was created on the prior run and still has the agent's
+    // edits. The CLI flag is an additional manual override.
+    const allowReuse = previousStatus === 'waiting_for_capacity' || (options.allowReuseWorktree ?? false)
+    sandboxHandle = await ctx.config.sandbox.setup(task, ctx.projectRoot, { allowReuse })
+    cwd = sandboxHandle.cwd
+    logger.line(`Sandbox ready at ${sandboxHandle.cwd} (base ${task.base_ref}@${task.base_sha?.slice(0, 8)})`)
   }
   catch (err) {
     return blockTask(ctx, state, task, logger, `sandbox.setup failed: ${(err as Error).message}`)
@@ -140,7 +180,7 @@ export async function runTask(
       previousLastReviewIssues,
       logger,
     )
-    return handlePostReview(ctx, state, task, cwd, logger, review, previousLastSummary, options)
+    return handlePostReview(ctx, state, task, sandboxHandle, logger, review, previousLastSummary, options)
   }
 
   // ── Implementer attempt loop ──────────────────────────────────────────────
@@ -175,18 +215,25 @@ export async function runTask(
       return pauseForCapacity(ctx, state, task, logger, 'implementer', claude.capacitySignal ?? 'capacity hit', `attempt ${attempt}`)
     }
 
-    const handoff = readHandoff(cwd)
-    if (!handoff) {
-      logger.line(`No handoff written by implementer attempt ${attempt}; treating as failed attempt.`)
-      lastFailureSummary = 'No handoff file written.'
+    const handoffResult = readHandoff(cwd, task.id)
+    if (!handoffResult.data) {
+      const why = handoffResult.reason ?? 'no handoff file written'
+      logger.line(`Implementer attempt ${attempt}: ${why}. Treating as failed attempt.`)
+      lastFailureSummary = `Handoff problem: ${why}`
       continue
     }
+    const handoff = handoffResult.data
     lastSummary = handoff.summary_of_changes ?? handoff.notes ?? ''
     task.last_summary = lastSummary
     saveState(ctx.runDir, state)
 
     if (handoff.verdict === 'BLOCKED') {
       return blockTask(ctx, state, task, logger, `Implementer blocked: ${handoff.notes}`)
+    }
+    if (handoff.verdict === 'NEEDS_FIXES') {
+      logger.line(`Implementer reported NEEDS_FIXES on attempt ${attempt}; routing back as a fresh attempt.`)
+      lastFailureSummary = handoff.notes || 'Implementer self-flagged NEEDS_FIXES'
+      continue
     }
 
     // Scope check
@@ -226,7 +273,7 @@ export async function runTask(
     task.review_iterations = 0
     saveState(ctx.runDir, state)
     const review = await runReviewerLoop(ctx, state, task, cwd, lastSummary, 0, '', logger)
-    return handlePostReview(ctx, state, task, cwd, logger, review, lastSummary, options)
+    return handlePostReview(ctx, state, task, sandboxHandle, logger, review, lastSummary, options)
   }
 
   return blockTask(
@@ -271,11 +318,13 @@ export async function runReviewerLoop(
       return 'paused'
     }
 
-    const review = readReview(cwd)
-    if (!review) {
-      logger.line(`Reviewer iter ${iter} wrote no review.json; treating as BLOCKED.`)
+    const reviewResult = readReview(cwd, task.id)
+    if (!reviewResult.data) {
+      const why = reviewResult.reason ?? 'no review file written'
+      logger.line(`Reviewer iter ${iter}: ${why}. Treating as BLOCKED.`)
       continue
     }
+    const review = reviewResult.data
     if (review.verdict === 'READY') {
       logger.block(`REVIEWER READY (iter ${iter})`, review.notes || 'No notes.')
       return 'ready'
@@ -304,11 +353,13 @@ export async function runReviewerLoop(
       return 'paused'
     }
 
-    const fixHandoff = readHandoff(cwd)
-    if (!fixHandoff) {
-      logger.line(`Implementer fix iter ${iter} wrote no handoff; will retry next iter.`)
+    const fixResult = readHandoff(cwd, task.id)
+    if (!fixResult.data) {
+      const why = fixResult.reason ?? 'no handoff file written'
+      logger.line(`Implementer fix iter ${iter}: ${why}. Will retry next iter.`)
       continue
     }
+    const fixHandoff = fixResult.data
     if (fixHandoff.verdict === 'BLOCKED') {
       task.blocked_reason = `Implementer pushed back on review: ${fixHandoff.notes}`
       return 'blocked'
@@ -358,12 +409,14 @@ export async function runReviewerLoop(
     pauseForCapacity(ctx, state, task, logger, 'reviewer', verifyRun.capacitySignal ?? 'capacity hit', 'final-verify')
     return 'paused'
   }
-  const finalReview = readReview(cwd)
-  if (!finalReview) {
-    logger.line('Final-verify reviewer wrote no review.json; treating as BLOCKED.')
-    task.blocked_reason = `Max review iterations (${task.max_review_iterations}) exceeded; final-verify wrote no verdict.`
+  const finalReviewResult = readReview(cwd, task.id)
+  if (!finalReviewResult.data) {
+    const why = finalReviewResult.reason ?? 'no review file written'
+    logger.line(`Final-verify reviewer: ${why}. Treating as BLOCKED.`)
+    task.blocked_reason = `Max review iterations (${task.max_review_iterations}) exceeded; final-verify problem: ${why}`
     return 'blocked'
   }
+  const finalReview = finalReviewResult.data
   if (finalReview.verdict === 'READY') {
     logger.block('FINAL VERIFY READY', finalReview.notes || 'No notes.')
     return 'ready'
@@ -408,6 +461,8 @@ async function invokeImplementer(
       cwd,
       taskId: task.id,
       label,
+      allowedTools: IMPLEMENTER_TOOLS,
+      timeoutMs: ctx.config.limits?.agentTurnTimeoutMs ?? DEFAULT_AGENT_TURN_TIMEOUT_MS,
     },
     (event: AgentEvent) => streamEventToLogger(logger, event),
   )
@@ -440,6 +495,8 @@ async function invokeReviewer(
       cwd,
       taskId: task.id,
       label,
+      allowedTools: REVIEWER_TOOLS,
+      timeoutMs: ctx.config.limits?.agentTurnTimeoutMs ?? DEFAULT_AGENT_TURN_TIMEOUT_MS,
     },
     (event: AgentEvent) => streamEventToLogger(logger, event),
   )
@@ -509,12 +566,13 @@ async function handlePostReview(
   ctx: RuntimeContext,
   state: RunState,
   task: Task,
-  cwd: string,
+  handle: SandboxHandle,
   logger: TaskLogger,
   outcome: ReviewerOutcome,
   summary: string,
   options: RunTaskOptions,
 ): Promise<void> {
+  const cwd = handle.cwd
   if (outcome === 'paused') {
     // pauseForCapacity already saved state.
     return
@@ -555,7 +613,7 @@ async function handlePostReview(
 
   let sha: string
   try {
-    sha = commitWorktree(task, ctx.projectRoot, { summary })
+    sha = commitWorktree(task, handle, { summary })
     task.commit = sha
     task.status = 'completed'
     task.completed_at = new Date().toISOString()
