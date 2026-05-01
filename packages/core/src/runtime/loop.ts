@@ -142,6 +142,7 @@ export async function runTask(
   const previousStatus = task.status
   const previousAttempts = task.attempts
   const previousReviewIterations = task.review_iterations
+  const previousCompletedReviewIterations = task.completed_review_iterations ?? 0
   const previousPausedPhase = task.paused_phase
   const previousLastSummary = task.last_summary ?? ''
   const previousLastReviewIssues = task.last_review_issues ?? ''
@@ -258,7 +259,15 @@ export async function runTask(
     const reason = previousPausedPhase
       ? `paused at ${previousPausedPhase}`
       : `killed mid-reviewer (review_iterations=${previousReviewIterations}); scope and gates re-verified`
-    logger.block('RESUME', `${reason}. Re-entering reviewer at iteration ${previousReviewIterations + 1}.`)
+    // `runReviewerLoop` resumes from `completed_review_iterations + 1` (the
+    // next un-completed iter), not `review_iterations + 1` (the next un-
+    // started iter). The log must match what the loop actually does, or
+    // recovery output disagrees with behavior.
+    const resumeIter = Math.min(previousCompletedReviewIterations + 1, maxReviewIterations)
+    const phaseLabel = previousCompletedReviewIterations >= maxReviewIterations
+      ? 'final-verify'
+      : `iteration ${resumeIter}`
+    logger.block('RESUME', `${reason}. Re-entering reviewer at ${phaseLabel}.`)
     const review = await runReviewerLoop(
       ctx,
       state,
