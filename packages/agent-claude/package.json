@@ -1,6 +1,6 @@
 {
   "name": "@choirmaster/agent-claude",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Claude Code agent for ChoirMaster. Drives `claude -p` headless turns with streaming tool-call visibility and capacity-aware error handling.",
   "type": "module",
   "main": "./dist/index.js",
