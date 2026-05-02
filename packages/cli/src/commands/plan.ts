@@ -6,6 +6,7 @@
  * and stdout/stderr formatting.
  */
 
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync } from 'node:fs'
 import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path'
 
@@ -99,7 +100,8 @@ export async function planCommand(args: PlanCommandArgs): Promise<number> {
   process.stdout.write(
     `\nPlan generated: ${result.tasksGenerated} task(s) -> ${shortPath(result.outputPath, projectRoot)}\n`,
   )
-  process.stdout.write(`Task contract written for inspection. Run with: choirmaster run ${planFile}\n\n`)
+  const runReference = args.planFile.startsWith('@') ? args.planFile : planFile
+  process.stdout.write(`Task contract written for inspection. Run with: choirmaster run ${runReference}\n\n`)
   return 0
 }
 
@@ -109,6 +111,7 @@ export async function planCommand(args: PlanCommandArgs): Promise<number> {
  *
  * - `.choirmaster/plans/example.md` -> `.choirmaster/tasks/example.tasks.json`
  * - `docs/migration.md` -> `.choirmaster/tasks/docs/migration.tasks.json`
+ * - `/tmp/migration.md` -> `.choirmaster/tasks/external/migration-<hash>.tasks.json`
  */
 export function defaultTasksOutputPath(planPath: string, projectRoot: string): string {
   const projectAbs = resolve(projectRoot)
@@ -116,7 +119,7 @@ export function defaultTasksOutputPath(planPath: string, projectRoot: string): s
   const rel = relative(projectAbs, planAbs)
   const planRel = rel && !rel.startsWith('..') && !isAbsolute(rel)
     ? rel.split(sep).join('/')
-    : basename(planAbs)
+    : externalPlanRel(planAbs)
 
   const contractRel = planRel.startsWith('.choirmaster/plans/')
     ? planRel.slice('.choirmaster/plans/'.length)
@@ -124,6 +127,14 @@ export function defaultTasksOutputPath(planPath: string, projectRoot: string): s
   const ext = extname(contractRel)
   const withoutExt = ext ? contractRel.slice(0, -ext.length) : contractRel
   return resolve(projectAbs, '.choirmaster/tasks', `${withoutExt}.tasks.json`)
+}
+
+function externalPlanRel(planAbs: string): string {
+  const fileName = basename(planAbs)
+  const ext = extname(fileName)
+  const stem = ext ? fileName.slice(0, -ext.length) : fileName
+  const hash = createHash('sha1').update(planAbs).digest('hex').slice(0, 8)
+  return `external/${stem || 'plan'}-${hash}${ext}`
 }
 
 function shortPath(absPath: string, projectRoot: string): string {

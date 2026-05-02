@@ -248,6 +248,7 @@ export async function main(argv: string[]): Promise<number> {
     // refusing overwrites so reviewed/edited tasks files don't get
     // clobbered by a re-plan.
     let tasksFile = inputFile
+    const runReference = inputFile
     if (tasksFile?.startsWith('@')) {
       const planRef = resolveMarkdownReference(tasksFile, process.cwd())
       if (!planRef.ok) {
@@ -258,7 +259,7 @@ export async function main(argv: string[]): Promise<number> {
     }
 
     if (tasksFile && tasksFile.toLowerCase().endsWith('.md')) {
-      const planExit = await planCommand({ planFile: tasksFile, force: true })
+      const planExit = await planCommand({ planFile: runReference ?? tasksFile, force: true })
       if (planExit !== 0) return planExit
       const projectRoot = resolveProjectRoot(process.cwd())
       tasksFile = relative(

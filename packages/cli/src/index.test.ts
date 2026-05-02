@@ -99,7 +99,7 @@ describe('CLI completion dispatch', () => {
 
     expect(code).toBe(2)
     expect(stdout).toContain('Plan generated: 1 task(s) -> .choirmaster/tasks/example.tasks.json')
-    expect(stdout).toContain('Task contract written for inspection. Run with: choirmaster run .choirmaster/plans/example.md')
+    expect(stdout).toContain('Task contract written for inspection. Run with: choirmaster run @example')
     expect(stdout).toContain('1 task(s) loaded from .choirmaster/tasks/example.tasks.json')
     expect(stdout).toContain('sandbox.setup failed: planned-contract-loaded')
   })

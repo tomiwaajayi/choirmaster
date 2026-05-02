@@ -130,7 +130,7 @@ describe('initCommand', () => {
     const root = tempRoot()
     writeFileSync(
       join(root, '.gitignore'),
-      '.choirmaster/runs/\n.choirmaster/plans/*.tasks.json\n',
+      'node_modules/\n.choirmaster/runs/\n.choirmaster/plans/*.tasks.json\n',
     )
 
     const code = await initCommand({ cwd: root })
@@ -138,7 +138,24 @@ describe('initCommand', () => {
 
     expect(code).toBe(0)
     expect(gitignore).not.toContain('.choirmaster/plans/*.tasks.json')
+    expect(gitignore).toContain('node_modules/\n.choirmaster/runs/\n# ChoirMaster generated artifacts')
+    expect(gitignore).not.toContain('\n\n# ChoirMaster generated artifacts')
     expect(gitignore).toContain('.choirmaster/tasks/')
+  })
+
+  it('preserves CRLF line endings when removing obsolete ignore rules', async () => {
+    const root = tempRoot()
+    writeFileSync(
+      join(root, '.gitignore'),
+      'node_modules/\r\n.choirmaster/runs/\r\n.choirmaster/plans/*.tasks.json\r\n.choirmaster/tasks/\r\n',
+    )
+
+    const code = await initCommand({ cwd: root })
+    const gitignore = readFileSync(join(root, '.gitignore'), 'utf8')
+
+    expect(code).toBe(0)
+    expect(gitignore).not.toContain('.choirmaster/plans/*.tasks.json')
+    expect(gitignore).toContain('node_modules/\r\n.choirmaster/runs/\r\n.choirmaster/tasks/\r\n')
   })
 })
 

@@ -29,6 +29,16 @@ describe('defaultTasksOutputPath', () => {
     expect(defaultTasksOutputPath(join(root, 'docs/migrations/scss-to-tailwind.md'), root))
       .toBe(join(root, '.choirmaster/tasks/docs/migrations/scss-to-tailwind.tasks.json'))
   })
+
+  it('disambiguates external plans that share a basename', () => {
+    const root = '/repo'
+    const first = defaultTasksOutputPath('/tmp/team-a/foo.md', root)
+    const second = defaultTasksOutputPath('/tmp/team-b/foo.md', root)
+
+    expect(first).not.toBe(second)
+    expect(first).toMatch(/\/repo\/\.choirmaster\/tasks\/external\/foo-[a-f0-9]{8}\.tasks\.json$/)
+    expect(second).toMatch(/\/repo\/\.choirmaster\/tasks\/external\/foo-[a-f0-9]{8}\.tasks\.json$/)
+  })
 })
 
 describe('planCommand', () => {
@@ -46,6 +56,17 @@ describe('planCommand', () => {
     expect(existsSync(join(root, '.choirmaster/plans/example.tasks.json'))).toBe(false)
     expect(JSON.parse(readFileSync(join(root, '.choirmaster/tasks/example.tasks.json'), 'utf8')))
       .toHaveLength(1)
+  })
+
+  it('preserves the original @query in the run recommendation', async () => {
+    const root = setupRepo()
+    const { code, stdout } = await capturePlan(root, {
+      planFile: '@example',
+      force: true,
+    })
+
+    expect(code).toBe(0)
+    expect(stdout).toContain('Task contract written for inspection. Run with: choirmaster run @example')
   })
 })
 
