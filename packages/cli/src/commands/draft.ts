@@ -65,6 +65,12 @@ export async function draftCommand(args: DraftCommandArgs = {}): Promise<number>
 
   const relOutput = shortPath(outputPath, projectRoot)
   process.stdout.write(`\nDraft plan created: ${relOutput}\n`)
+  if (!goal && !source) {
+    process.stdout.write(`Tip: pass a goal for a more useful draft, for example: choirmaster draft "add rate limiting to login"\n`)
+  }
+  if (!isInsideProject(outputPath, projectRoot)) {
+    process.stdout.write(`Warning: draft was written outside the project root; @ shortcuts only match markdown files inside the repo.\n`)
+  }
   process.stdout.write(`Edit it, then run: choirmaster run ${relOutput}\n`)
   if (isInsideProject(outputPath, projectRoot)) {
     process.stdout.write(`Shortcut after shell completions: cm run @${slugify(title)}\n`)
@@ -83,21 +89,24 @@ function buildDraftPlan({
   source?: { label: string; content: string }
 }): string {
   const goalText = goal || 'TODO: Describe the engineering outcome in one or two concrete sentences.'
+  const sourceFence = source ? fenceForContent(source.content) : '````'
   const sourceSection = source
     ? `
 ## Source Notes
 
 Imported from \`${source.label}\`. Keep the useful parts, delete anything that no longer applies, and make assumptions explicit before running.
 
-\`\`\`\`md
+${sourceFence}md
 ${trimSource(source.content)}
-\`\`\`\`
+${sourceFence}
 `
     : ''
 
   return `# ${title}
 
 This is the human plan for ChoirMaster. Tighten it before running; the planner will turn this markdown into scoped executable tasks.
+
+> Draft note: before running, answer or delete the clarifying questions below. If you leave a recommended default in place, ChoirMaster will treat it as an accepted assumption.
 
 ## Goal
 
@@ -184,6 +193,8 @@ function titleCase(value: string): string {
 
 function slugify(value: string): string {
   const slug = value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/^plan:\s*/, '')
     .replace(/[^a-z0-9]+/g, '-')
@@ -197,6 +208,12 @@ function trimSource(content: string): string {
   const maxChars = 12_000
   if (content.length <= maxChars) return content.trim()
   return `${content.slice(0, maxChars).trim()}\n\n[Truncated: source notes were longer than ${maxChars} characters.]`
+}
+
+function fenceForContent(content: string): string {
+  const runs = content.match(/`+/g) ?? []
+  const longest = runs.reduce((max, run) => Math.max(max, run.length), 0)
+  return '`'.repeat(Math.max(4, longest + 1))
 }
 
 function shortPath(absPath: string, projectRoot: string): string {

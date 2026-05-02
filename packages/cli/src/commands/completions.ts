@@ -149,7 +149,9 @@ complete -c cm -n "__fish_seen_subcommand_from doctor" -l skip-network
 complete -c cm -n "__fish_seen_subcommand_from doctor" -l offline
 
 complete -c choirmaster -n "__fish_seen_subcommand_from init" -l force
+complete -c choirmaster -n "__fish_seen_subcommand_from init" -s f
 complete -c cm -n "__fish_seen_subcommand_from init" -l force
+complete -c cm -n "__fish_seen_subcommand_from init" -s f
 `
 
 const POWERSHELL_COMPLETION = `Register-ArgumentCompleter -Native -CommandName choirmaster,cm -ScriptBlock {

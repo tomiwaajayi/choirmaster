@@ -68,6 +68,9 @@ export async function planCommand(args: PlanCommandArgs): Promise<number> {
   process.stdout.write(`\nChoirMaster plan ${planFile}\n`)
   process.stdout.write(`  agent: ${config.agents.planner.name}\n`)
   process.stdout.write(`  output: ${shortPath(outputPath, projectRoot)}\n\n`)
+  if (!isInsideProject(outputPath, projectRoot)) {
+    process.stdout.write(`Warning: output is outside the project root; @ shortcuts only match markdown files inside the repo.\n\n`)
+  }
 
   const result: RunPlannerResult = await runPlanner(
     {
@@ -112,4 +115,8 @@ function defaultOutputPath(planPath: string): string {
 function shortPath(absPath: string, projectRoot: string): string {
   const relPrefix = `${projectRoot}/`
   return absPath.startsWith(relPrefix) ? absPath.slice(relPrefix.length) : absPath
+}
+
+function isInsideProject(absPath: string, projectRoot: string): boolean {
+  return absPath === projectRoot || absPath.startsWith(`${projectRoot}/`)
 }

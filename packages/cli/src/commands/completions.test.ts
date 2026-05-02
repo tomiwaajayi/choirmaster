@@ -29,6 +29,7 @@ describe('completionsCommand', () => {
     expect(stdout).toContain('function __choirmaster_complete_markdown')
     expect(stdout).toContain('doctor draft init plan run completions')
     expect(stdout).toContain('__complete markdown $token')
+    expect(stdout).toContain('__fish_seen_subcommand_from init" -s f')
   })
 
   it('prints PowerShell completions', () => {

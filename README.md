@@ -137,6 +137,9 @@ choirmaster draft "add onboarding notes for new contributors"
 # or draft from existing notes / an issue body
 choirmaster draft --from notes.md
 
+# draft asks you to answer or delete clarifying questions before running
+# use --output <path.md> when you want the plan somewhere else
+
 # check your setup before invoking an agent
 choirmaster doctor
 

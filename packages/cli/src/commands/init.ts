@@ -3,8 +3,8 @@
  *
  * Scaffolds `.choirmaster/` in the current repo: typed manifest, prompt
  * files for planner, plan reviewer, implementer, and reviewer, an example
- * markdown plan, an example tasks file, and `.gitignore` entries for generated
- * runtime artifacts. Refuses to overwrite an existing `.choirmaster/`
+ * markdown plan, and `.gitignore` entries for generated runtime artifacts.
+ * Refuses to overwrite an existing `.choirmaster/`
  * unless `--force` is passed.
  */
 
@@ -37,7 +37,6 @@ export async function initCommand(args: InitCommandArgs = {}): Promise<number> {
   writeFileSync(join(choirDir, 'prompts', 'implementer.md'), IMPLEMENTER_TEMPLATE)
   writeFileSync(join(choirDir, 'prompts', 'reviewer.md'), REVIEWER_TEMPLATE)
   writeFileSync(join(choirDir, 'plans', 'example.md'), EXAMPLE_PLAN_TEMPLATE)
-  writeFileSync(join(choirDir, 'plans', 'example.tasks.json'), EXAMPLE_TASKS_TEMPLATE)
 
   ensureGitignoreEntry(cwd)
 
@@ -49,7 +48,6 @@ export async function initCommand(args: InitCommandArgs = {}): Promise<number> {
   process.stdout.write(`  .choirmaster/prompts/implementer.md\n`)
   process.stdout.write(`  .choirmaster/prompts/reviewer.md\n`)
   process.stdout.write(`  .choirmaster/plans/example.md\n`)
-  process.stdout.write(`  .choirmaster/plans/example.tasks.json\n`)
   process.stdout.write(`\nNext steps:\n`)
   process.stdout.write(`  1. Add choirmaster as a project dev dependency so manifest.ts resolves locally.\n`)
   process.stdout.write(`     Do this even if you also installed the CLI globally:\n`)
@@ -66,7 +64,7 @@ export async function initCommand(args: InitCommandArgs = {}): Promise<number> {
   process.stdout.write(`       choirmaster draft "describe the change you want"\n`)
   process.stdout.write(`       choirmaster run @example                              # match the example markdown plan\n`)
   process.stdout.write(`       choirmaster run .choirmaster/plans/example.md          # same thing, explicit path\n`)
-  process.stdout.write(`       choirmaster run .choirmaster/plans/example.tasks.json  # run a hand-written tasks file\n`)
+  process.stdout.write(`       choirmaster plan @example                             # generate a local tasks file for inspection\n`)
   process.stdout.write(`  6. (Optional) install live shell completions for @-references:\n`)
   process.stdout.write(`       choirmaster completions <zsh|bash|fish|powershell|nushell>\n`)
   process.stdout.write(`\n`)
@@ -80,10 +78,12 @@ function ensureGitignoreEntry(cwd: string): void {
     return
   }
   const current = readFileSync(path, 'utf8')
-  const missingLines = GITIGNORE_LINES.filter((line) => !current.includes(line))
+  const missingLines = GITIGNORE_LINES.filter((line) => !hasEquivalentIgnoreRule(current, line))
   if (missingLines.length === 0) return
   const prefix = current.endsWith('\n') ? '\n' : '\n\n'
-  appendFileSync(path, `${prefix}# ChoirMaster generated artifacts (do not commit)\n${missingLines.join('\n')}\n`)
+  const hasHeader = current.includes('# ChoirMaster generated artifacts') || current.includes('# ChoirMaster per-run state')
+  const header = hasHeader ? '' : '# ChoirMaster generated artifacts (do not commit)\n'
+  appendFileSync(path, `${prefix}${header}${missingLines.join('\n')}\n`)
 }
 
 const GITIGNORE_LINES = [
@@ -94,6 +94,25 @@ const GITIGNORE_LINES = [
 const GITIGNORE_ENTRY = `# ChoirMaster generated artifacts (do not commit)
 ${GITIGNORE_LINES.join('\n')}
 `
+
+function hasEquivalentIgnoreRule(content: string, required: string): boolean {
+  const rules = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'))
+  if (rules.includes(required)) return true
+  if (required === '.choirmaster/runs/') {
+    return rules.some((rule) => rule === '.choirmaster/' || rule === '.choirmaster/runs/**')
+  }
+  if (required === '.choirmaster/plans/*.tasks.json') {
+    return rules.some((rule) =>
+      rule === '.choirmaster/'
+      || rule === '.choirmaster/plans/'
+      || rule === '.choirmaster/plans/**'
+    )
+  }
+  return false
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Templates
@@ -178,18 +197,20 @@ You are the planner in a ChoirMaster orchestration loop. You receive a markdown 
 3. **Stay inside the project root.** Worktree paths must be relative, must not contain \`..\` segments, and must not be absolute.
 4. **Unique ids, branches, worktrees.** Across the array, every task's \`id\`, \`branch\`, and \`worktree\` must be distinct.
 5. **No self-references in \`depends_on\`.** A task cannot depend on itself; cycles will be rejected.
+6. **Draft scaffolds are not requirements.** If the plan contains \`Question:\` lines from \`choirmaster draft\`, use them only to identify assumptions. Do not turn unanswered question text into implementation work.
 
 ## Workflow
 
 1. Read the plan markdown carefully.
-2. Explore the codebase as needed to understand what each task would touch (Read, Glob, Grep).
-3. Decompose the plan into small, independently completable tasks. Prefer many small tasks over few sprawling ones.
-4. Each task must:
+2. If draft questions remain, prefer narrow tasks and include any assumptions in task descriptions. Do not guess broad scope from unanswered questions.
+3. Explore the codebase as needed to understand what each task would touch (Read, Glob, Grep).
+4. Decompose the plan into small, independently completable tasks. Prefer many small tasks over few sprawling ones.
+5. Each task must:
    - declare \`allowed_paths\` precisely - the actual files that need editing, not catch-all globs
    - have a \`definition_of_done\` whose every item a reviewer can verify against the diff
    - belong to a single, narrow concern (refactor, add, rename, fix)
-5. Use \`depends_on\` to express ordering. Don't rely on array order.
-6. Write \`.choirmaster/plan-output.json\` and stop.
+6. Use \`depends_on\` to express ordering. Don't rely on array order.
+7. Write \`.choirmaster/plan-output.json\` and stop.
 
 ## Task schema
 
@@ -393,25 +414,4 @@ ChoirMaster-managed project.
 
 This plan is intentionally tiny. One task is enough. Don't invent
 additional cleanup, refactor, or test work that isn't asked for.
-`
-
-const EXAMPLE_TASKS_TEMPLATE = `[
-  {
-    "id": "TASK-01",
-    "title": "Add a hello world note",
-    "description": "Create a NOTES.md file at the repo root with a single greeting line. A trivial task you can use to verify the orchestrator pipeline works end-to-end.",
-    "branch": "choirmaster/task-01-hello",
-    "worktree": ".choirmaster/runs/active/worktrees/task-01",
-    "allowed_paths": ["NOTES.md"],
-    "forbidden_paths": [],
-    "gates": [],
-    "definition_of_done": [
-      "NOTES.md exists at the repo root",
-      "It contains a one-line greeting"
-    ],
-    "attempts": 0,
-    "review_iterations": 0,
-    "status": "pending"
-  }
-]
 `

@@ -62,6 +62,35 @@ describe('CLI completion dispatch', () => {
     expect(readFileSync(join(root, '.choirmaster/plans/add-rate-limits.md'), 'utf8'))
       .toContain('# Plan: Add Rate Limits')
   })
+
+  it('reports missing flag values before consuming the next flag token', async () => {
+    const root = setupRepo()
+
+    const draft = await captureMain(root, ['node', 'cm', 'draft', '--from', '--output', 'foo.md'])
+    const plan = await captureMain(root, ['node', 'cm', 'plan', '--output', '--force', 'plan.md'])
+    const doctor = await captureMain(root, ['node', 'cm', 'doctor', '--cwd', '--skip-network'])
+    const run = await captureMain(root, ['node', 'cm', 'run', '--resume', '--no-auto-merge'])
+
+    expect(draft).toMatchObject({ code: 64, stderr: '--from requires a value.\n' })
+    expect(plan).toMatchObject({ code: 64, stderr: '--output requires a value.\n' })
+    expect(doctor).toMatchObject({ code: 64, stderr: '--cwd requires a value.\n' })
+    expect(run).toMatchObject({ code: 64, stderr: '--resume requires a value.\n' })
+  })
+
+  it('supports -- as end-of-options for draft goals and positional inputs', async () => {
+    const root = setupRepo({
+      '-dash-plan.md': '# Dash plan\n',
+    })
+
+    const draft = await captureMain(root, ['node', 'cm', 'draft', '--', '--leading-dash', 'goal'])
+    const plan = await captureMain(root, ['node', 'cm', 'plan', '--', '-dash-plan.md'])
+
+    expect(draft.code).toBe(0)
+    expect(readFileSync(join(root, '.choirmaster/plans/leading-dash-goal.md'), 'utf8'))
+      .toContain('## Goal\n\n--leading-dash goal')
+    expect(plan.code).toBe(1)
+    expect(plan.stderr).toContain('No manifest found')
+  })
 })
 
 async function captureMain(

@@ -54,7 +54,7 @@ Usage:
 
 Commands:
   doctor                         Check repo, manifest, agents, gates, and network
-  draft [goal]                   Create an editable markdown plan skeleton
+  draft [goal...]                Create an editable markdown plan skeleton
   init [--force]                Scaffold .choirmaster/ in the current repo
   plan <plan.md|@query>         Decompose a markdown plan into a tasks file
   run <plan.md|@query|tasks.json>
@@ -64,12 +64,12 @@ Commands:
                                 Print shell completion script
 
 Plan options:
-  --output <path>               Write the generated tasks file here
+  --output <path>               Write the generated tasks file here (any writable path)
   --force, -f                   Overwrite an existing tasks file at the output path
 
 Draft options:
   --from <path>                 Create a draft from notes or an issue body
-  --output <path>               Write the markdown plan here
+  --output <path>               Write the markdown plan here (any writable path)
   --force, -f                   Overwrite an existing markdown plan
 
 Markdown shortcuts:
@@ -130,17 +130,13 @@ export async function main(argv: string[]): Promise<number> {
 
   if (command === 'doctor') {
     const argList = args.slice(1)
-    const cwdIdx = argList.indexOf('--cwd')
-    let cwd: string | undefined
-    if (cwdIdx !== -1) {
-      cwd = argList[cwdIdx + 1]
-      if (!cwd) {
-        process.stderr.write('--cwd requires a path.\n')
-        return 64
-      }
+    const cwd = readFlagValue(argList, '--cwd')
+    if (!cwd.ok) {
+      process.stderr.write(cwd.error)
+      return 64
     }
     return doctorCommand({
-      cwd,
+      cwd: cwd.value,
       skipNetwork: argList.includes('--skip-network') || argList.includes('--offline'),
     })
   }
@@ -148,38 +144,26 @@ export async function main(argv: string[]): Promise<number> {
   if (command === 'draft') {
     const argList = args.slice(1)
     const consumed = new Set<number>()
-    const fromIdx = argList.indexOf('--from')
-    let fromFile: string | undefined
-    if (fromIdx !== -1) {
-      fromFile = argList[fromIdx + 1]
-      if (!fromFile) {
-        process.stderr.write('--from requires a path.\n')
-        return 64
-      }
-      consumed.add(fromIdx)
-      consumed.add(fromIdx + 1)
+    const fromFile = readFlagValue(argList, '--from')
+    if (!fromFile.ok) {
+      process.stderr.write(fromFile.error)
+      return 64
     }
+    markConsumed(consumed, fromFile)
 
-    const outputIdx = argList.indexOf('--output')
-    let outputFile: string | undefined
-    if (outputIdx !== -1) {
-      outputFile = argList[outputIdx + 1]
-      if (!outputFile) {
-        process.stderr.write('--output requires a path.\n')
-        return 64
-      }
-      consumed.add(outputIdx)
-      consumed.add(outputIdx + 1)
+    const outputFile = readFlagValue(argList, '--output')
+    if (!outputFile.ok) {
+      process.stderr.write(outputFile.error)
+      return 64
     }
+    markConsumed(consumed, outputFile)
 
-    const goal = argList
-      .filter((arg, i) => !consumed.has(i) && arg !== '--force' && arg !== '-f' && !arg.startsWith('-'))
-      .join(' ')
+    const goal = collectDraftGoal(argList, consumed)
 
     return draftCommand({
       goal,
-      fromFile,
-      outputFile,
+      fromFile: fromFile.value,
+      outputFile: outputFile.value,
       force: argList.includes('--force') || argList.includes('-f'),
     })
   }
@@ -203,30 +187,25 @@ export async function main(argv: string[]): Promise<number> {
 
   if (command === 'plan') {
     const argList = args.slice(1)
-    const outputIdx = argList.indexOf('--output')
-    let outputFile: string | undefined
     const consumed = new Set<number>()
-    if (outputIdx !== -1) {
-      outputFile = argList[outputIdx + 1]
-      if (!outputFile) {
-        process.stderr.write('--output requires a path.\n')
-        return 64
-      }
-      consumed.add(outputIdx)
-      consumed.add(outputIdx + 1)
+    const outputFile = readFlagValue(argList, '--output')
+    if (!outputFile.ok) {
+      process.stderr.write(outputFile.error)
+      return 64
     }
+    markConsumed(consumed, outputFile)
     // Skip anything that looks like an option (starts with `-`), not just
     // double-dash long flags. Otherwise `choirmaster plan -f plan.md`
     // would pick `-f` as the positional plan file and fail before the
     // real path is read.
-    const planFile = argList.find((a, i) => !consumed.has(i) && !a.startsWith('-'))
+    const planFile = findPositionalArg(argList, consumed)
     if (!planFile) {
       process.stderr.write('Usage: choirmaster plan <plan.md> [--output <tasks.json>] [--force]\n')
       return 64
     }
     return planCommand({
       planFile,
-      outputFile,
+      outputFile: outputFile.value,
       force: args.includes('--force') || args.includes('-f'),
     })
   }
@@ -235,27 +214,22 @@ export async function main(argv: string[]): Promise<number> {
     const argList = args.slice(1)
 
     // --resume <run-id> takes precedence over a positional input.
-    const resumeIdx = argList.indexOf('--resume')
-    let resumeRunId: string | undefined
     const consumed = new Set<number>()
-    if (resumeIdx !== -1) {
-      resumeRunId = argList[resumeIdx + 1]
-      if (!resumeRunId) {
-        process.stderr.write('--resume requires a run id.\n')
-        return 64
-      }
-      consumed.add(resumeIdx)
-      consumed.add(resumeIdx + 1)
+    const resumeRunId = readFlagValue(argList, '--resume')
+    if (!resumeRunId.ok) {
+      process.stderr.write(resumeRunId.error)
+      return 64
     }
+    markConsumed(consumed, resumeRunId)
 
-    const inputFile = argList.find((a, i) => !consumed.has(i) && !a.startsWith('-'))
-    if (resumeRunId && inputFile) {
+    const inputFile = findPositionalArg(argList, consumed)
+    if (resumeRunId.value && inputFile) {
       process.stderr.write(
-        `Pass either a plan/tasks file or --resume, not both. (got both '${inputFile}' and --resume ${resumeRunId})\n`,
+        `Pass either a plan/tasks file or --resume, not both. (got both '${inputFile}' and --resume ${resumeRunId.value})\n`,
       )
       return 64
     }
-    if (!resumeRunId && !inputFile) {
+    if (!resumeRunId.value && !inputFile) {
       process.stderr.write(
         'Usage:\n'
         + '  choirmaster run <plan.md|@query|tasks.json> [--continue-on-blocked] [--reuse-worktree] [--no-auto-merge]\n'
@@ -290,7 +264,7 @@ export async function main(argv: string[]): Promise<number> {
 
     return runCommand({
       tasksFile,
-      resumeRunId,
+      resumeRunId: resumeRunId.value,
       continueOnBlocked: args.includes('--continue-on-blocked'),
       reuseWorktree: args.includes('--reuse-worktree'),
       skipAutoMerge: args.includes('--no-auto-merge'),
@@ -306,4 +280,46 @@ export async function main(argv: string[]): Promise<number> {
   process.stderr.write(`choirmaster: unknown command '${command ?? ''}'\n\n`)
   process.stderr.write(HELP)
   return 64
+}
+
+type FlagValue =
+  | { ok: true; value: string | undefined; indexes: number[] }
+  | { ok: false; error: string }
+
+function readFlagValue(args: string[], flag: string): FlagValue {
+  const endOfOptions = args.indexOf('--')
+  const index = args.findIndex((arg, i) => arg === flag && (endOfOptions === -1 || i < endOfOptions))
+  if (index === -1) return { ok: true, value: undefined, indexes: [] }
+  const value = args[index + 1]
+  if (!value || value.startsWith('-')) {
+    return { ok: false, error: `${flag} requires a value.\n` }
+  }
+  return { ok: true, value, indexes: [index, index + 1] }
+}
+
+function markConsumed(consumed: Set<number>, value: FlagValue): void {
+  if (!value.ok) return
+  for (const index of value.indexes) {
+    consumed.add(index)
+  }
+}
+
+function collectDraftGoal(args: string[], consumed: Set<number>): string {
+  const endOfOptions = args.indexOf('--')
+  if (endOfOptions !== -1) {
+    return args
+      .slice(endOfOptions + 1)
+      .join(' ')
+  }
+  return args
+    .filter((arg, i) => !consumed.has(i) && !arg.startsWith('-'))
+    .join(' ')
+}
+
+function findPositionalArg(args: string[], consumed: Set<number>): string | undefined {
+  const endOfOptions = args.indexOf('--')
+  if (endOfOptions !== -1) {
+    return args.slice(endOfOptions + 1).find(Boolean)
+  }
+  return args.find((arg, i) => !consumed.has(i) && !arg.startsWith('-'))
 }
