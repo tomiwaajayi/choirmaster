@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { formatMarkdownReferenceError, resolveMarkdownReference } from './markdown-ref.js'
+import { completeMarkdownReferences, formatMarkdownReferenceError, resolveMarkdownReference } from './markdown-ref.js'
 
 const roots: string[] = []
 
@@ -143,6 +143,35 @@ describe('resolveMarkdownReference', () => {
       ok: false,
       suggestions: [],
     })
+  })
+
+  it('returns completion candidates with @ prefixes', () => {
+    const root = setupRepo({
+      files: {
+        '.choirmaster/plans/example.md': '# Example\n',
+        'docs/roadmap.md': '# Roadmap\n',
+        'notes/release.md': '# Release\n',
+      },
+      commit: true,
+    })
+
+    expect(completeMarkdownReferences('@ex', root)).toEqual(['@.choirmaster/plans/example.md'])
+    expect(completeMarkdownReferences('@', root)).toEqual([
+      '@.choirmaster/plans/example.md',
+      '@docs/roadmap.md',
+      '@notes/release.md',
+    ])
+  })
+
+  it('does not complete non-reference inputs', () => {
+    const root = setupRepo({
+      files: {
+        'docs/roadmap.md': '# Roadmap\n',
+      },
+      commit: true,
+    })
+
+    expect(completeMarkdownReferences('docs', root)).toEqual([])
   })
 })
 

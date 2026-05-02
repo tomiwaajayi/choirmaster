@@ -18,11 +18,12 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { completionsCommand } from './commands/completions.js'
 import { doctorCommand } from './commands/doctor.js'
 import { initCommand } from './commands/init.js'
 import { planCommand } from './commands/plan.js'
 import { runCommand } from './commands/run.js'
-import { formatMarkdownReferenceError, resolveMarkdownReference } from './markdown-ref.js'
+import { completeMarkdownReferences, formatMarkdownReferenceError, resolveMarkdownReference } from './markdown-ref.js'
 
 // ── Library re-exports ──────────────────────────────────────────────────────
 
@@ -57,6 +58,7 @@ Commands:
   run <plan.md|@query|tasks.json>
                                 Plan-then-run markdown, or run a tasks file
   run --resume <run-id>         Resume a paused or interrupted run
+  completions <shell>           Print shell completion script
 
 Plan options:
   --output <path>               Write the generated tasks file here
@@ -64,6 +66,7 @@ Plan options:
 
 Markdown shortcuts:
   @query                        Match markdown files in the repo, e.g. cm run @example
+  completions                   zsh, bash, fish, powershell, nushell
 
 Doctor options:
   --cwd <path>                  Check a different project directory
@@ -130,6 +133,23 @@ export async function main(argv: string[]): Promise<number> {
       cwd,
       skipNetwork: argList.includes('--skip-network') || argList.includes('--offline'),
     })
+  }
+
+  if (command === '__complete') {
+    const kind = args[1]
+    if (kind === 'markdown') {
+      const input = args[2] ?? '@'
+      for (const match of completeMarkdownReferences(input, process.cwd())) {
+        process.stdout.write(`${match}\n`)
+      }
+      return 0
+    }
+    process.stderr.write('Usage: choirmaster __complete markdown <@query>\n')
+    return 64
+  }
+
+  if (command === 'completions') {
+    return completionsCommand({ shell: args[1] })
   }
 
   if (command === 'plan') {

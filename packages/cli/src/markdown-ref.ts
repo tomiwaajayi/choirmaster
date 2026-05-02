@@ -5,6 +5,15 @@ export type MarkdownReferenceResult =
   | { ok: true; path: string; matched: boolean }
   | { ok: false; message: string; suggestions: string[] }
 
+export function completeMarkdownReferences(input: string, cwd: string): string[] {
+  if (!input.startsWith('@')) return []
+
+  const query = input.slice(1).trim().toLowerCase()
+  const files = listMarkdownFiles(cwd)
+  const matches = query ? findMarkdownMatches(files, query) : files
+  return matches.slice(0, 50).map((path) => `@${path}`)
+}
+
 export function resolveMarkdownReference(input: string, cwd: string): MarkdownReferenceResult {
   if (!input.startsWith('@')) return { ok: true, path: input, matched: false }
 

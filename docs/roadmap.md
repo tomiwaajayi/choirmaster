@@ -18,11 +18,12 @@ ChoirMaster should help the user write a good plan, not just execute one.
 
 The markdown plan is the human authoring surface. It can live anywhere in the repo; `.choirmaster/plans/` is only the scaffolded convention. The `*.tasks.json` is the generated execution contract; the runtime owns it, the user does not have to.
 
-### 0.3.0 Baseline
+### Current 0.3.x Surface
 
 - Single-package install: global CLI (`npm install -g choirmaster`) or project dev dependency (`npm install -D choirmaster` with `npx choirmaster`).
 - Markdown-first: `choirmaster run <plan.md>` is the primary path; `<tasks.json>` is the advanced/debug surface.
 - Repo-wide markdown shorthand: `cm run @example` can resolve a markdown plan without requiring the user to remember the full path.
+- Live markdown completions for common shells: zsh, bash, fish, PowerShell, and Nushell all call the same `cm __complete markdown @query` protocol.
 - Visible self-dogfood config in this repo (`.choirmaster/`), proving the runtime against itself.
 - Sandbox prepare hook for real worktrees (e.g. `pnpm install --frozen-lockfile`).
 
@@ -142,6 +143,7 @@ Core commands:
 - `choirmaster run <tasks.json>` as the advanced/debug path
 - `choirmaster run --resume <run-id>`
 - `cm run @query` and `cm plan @query` for matching markdown plans anywhere in the repo
+- `cm completions <zsh|bash|fish|powershell|nushell>` for live `@query` shell suggestions
 
 Needed polish:
 
@@ -152,7 +154,7 @@ Needed polish:
 - Strong defaults in the scaffolded manifest.
 - Documented branch policies and retry limits.
 - Simple recipes for common work: docs cleanup, test coverage, refactor, migration slice.
-- True shell completions for `@query` so users get live markdown suggestions while typing, not just execute-time ambiguity hints.
+- Keep expanding shell integration where users actually work: VS Code terminals, JetBrains terminals, PowerShell profiles, Nushell configs, and any future completion protocol that can call `cm __complete`.
 
 Success criteria:
 
