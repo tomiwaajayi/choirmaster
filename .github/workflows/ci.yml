@@ -92,3 +92,10 @@ jobs:
           npm install "$tarball_path" >/dev/null
           npx choirmaster --version
           npx cm --version
+          git init -b main >/dev/null
+          git config user.email test@example.com
+          git config user.name Test
+          npx cm init >/dev/null
+          git add -A
+          git commit -m initial >/dev/null
+          npx cm doctor --skip-network
