@@ -32,6 +32,7 @@ export async function initCommand(args: InitCommandArgs = {}): Promise<number> {
   mkdirSync(choirDir, { recursive: true })
   mkdirSync(join(choirDir, 'prompts'), { recursive: true })
   mkdirSync(join(choirDir, 'plans'), { recursive: true })
+  mkdirSync(join(choirDir, 'tasks'), { recursive: true })
 
   const baseBranch = currentBranch(cwd) ?? 'main'
 
@@ -93,7 +94,7 @@ function ensureGitignoreEntry(cwd: string): void {
 
 const GITIGNORE_LINES = [
   '.choirmaster/runs/',
-  '.choirmaster/plans/*.tasks.json',
+  '.choirmaster/tasks/',
 ]
 
 const GITIGNORE_ENTRY = `# ChoirMaster generated artifacts (do not commit)
@@ -109,11 +110,10 @@ function hasEquivalentIgnoreRule(content: string, required: string): boolean {
   if (required === '.choirmaster/runs/') {
     return rules.some((rule) => rule === '.choirmaster/' || rule === '.choirmaster/runs/**')
   }
-  if (required === '.choirmaster/plans/*.tasks.json') {
+  if (required === '.choirmaster/tasks/') {
     return rules.some((rule) =>
       rule === '.choirmaster/'
-      || rule === '.choirmaster/plans/'
-      || rule === '.choirmaster/plans/**'
+      || rule === '.choirmaster/tasks/**'
     )
   }
   return false
@@ -394,7 +394,7 @@ choirmaster run .choirmaster/plans/example.md
 That command:
 
 1. Invokes the planner agent. It reads this markdown, generates a
-   validated \`example.tasks.json\` next to this file, and stops.
+   validated \`.choirmaster/tasks/example.tasks.json\`, and stops.
 2. Hands the generated tasks file to the runtime, which drives each task
    through implementer -> gates -> reviewer -> commit -> merge in an
    isolated git worktree.

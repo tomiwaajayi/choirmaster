@@ -47,7 +47,7 @@ Three layers, one published package:
 
 1. **Runtime** - state machine, retry caps, capacity pause/resume, worktree management, scope enforcement, gate runner, auto-merge with conflict abort. Project-agnostic.
 2. **Agent adapters** - pluggable `Agent` interface; the default Claude Code adapter ships in the box. Future agents (Codex, OpenCode, custom) implement the same interface.
-3. **Project config** - a typed `manifest.ts` per repo declares base branch, agent preferences, gates, sandbox setup, branch policy, and prompt files. Markdown plans can live anywhere in the repo; `.choirmaster/plans/` is the scaffolded convention. Generated `*.tasks.json` files are the validated execution contracts.
+3. **Project config** - a typed `manifest.ts` per repo declares base branch, agent preferences, gates, sandbox setup, branch policy, and prompt files. Markdown plans can live anywhere in the repo; `.choirmaster/plans/` is the scaffolded convention. Generated `*.tasks.json` files live under `.choirmaster/tasks/` as validated execution contracts.
 
 The repo is a pnpm workspace with internal modules (`packages/core`, `packages/agent-claude`, `packages/cli`); `pnpm build` bundles them into the single published `choirmaster` package.
 
@@ -56,7 +56,8 @@ The repo is a pnpm workspace with internal modules (`packages/core`, `packages/a
 ├─ manifest.ts            # typed defineProject({...})
 ├─ prompts/               # planner.md, plan-reviewer.md, implementer.md, reviewer.md
 ├─ plans/
-│  ├─ 2026-05-foo.md      # human-authored plan input
+│  └─ 2026-05-foo.md      # human-authored plan input
+├─ tasks/
 │  └─ 2026-05-foo.tasks.json  # generated execution contract
 └─ runs/<run-id>/         # per-run state, logs (gitignored)
 ```
@@ -155,7 +156,7 @@ choirmaster run .choirmaster/plans/example.md
 
 # alternatively: just plan, review the generated tasks file, then run
 choirmaster plan @example
-choirmaster run .choirmaster/plans/example.tasks.json
+choirmaster run .choirmaster/tasks/example.tasks.json
 
 # resume a paused or interrupted run
 choirmaster run --resume <run-id>

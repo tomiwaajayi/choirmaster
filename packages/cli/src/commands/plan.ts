@@ -1,13 +1,13 @@
 /**
  * `choirmaster plan <plan.md|@query> [--output <tasks.json>]`
  *
- * Decompose a markdown plan into a validated `*.tasks.json` next to it.
+ * Decompose a markdown plan into a validated `*.tasks.json` contract.
  * The runtime helper does the work; this command just wires args, manifest,
  * and stdout/stderr formatting.
  */
 
 import { existsSync, mkdirSync } from 'node:fs'
-import { basename, dirname, extname, resolve } from 'node:path'
+import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path'
 
 import { runPlanner, type RunPlannerResult } from '@choirmaster/core'
 
@@ -57,7 +57,7 @@ export async function planCommand(args: PlanCommandArgs): Promise<number> {
 
   const outputPath = args.outputFile
     ? resolve(projectRoot, args.outputFile)
-    : defaultOutputPath(planPath)
+    : defaultTasksOutputPath(planPath, projectRoot)
 
   // Per-run logs for the planner are noisy and we don't yet have a run
   // directory to file them under. The agent's stream still surfaces in
@@ -104,12 +104,26 @@ export async function planCommand(args: PlanCommandArgs): Promise<number> {
 }
 
 /**
- * `path/to/plan.md` -> `path/to/plan.tasks.json` (next to the input).
+ * Default task contracts live under `.choirmaster/tasks/`, keeping human
+ * markdown plans separate from generated runtime contracts:
+ *
+ * - `.choirmaster/plans/example.md` -> `.choirmaster/tasks/example.tasks.json`
+ * - `docs/migration.md` -> `.choirmaster/tasks/docs/migration.tasks.json`
  */
-function defaultOutputPath(planPath: string): string {
-  const dir = dirname(planPath)
-  const base = basename(planPath, extname(planPath))
-  return resolve(dir, `${base}.tasks.json`)
+export function defaultTasksOutputPath(planPath: string, projectRoot: string): string {
+  const projectAbs = resolve(projectRoot)
+  const planAbs = resolve(planPath)
+  const rel = relative(projectAbs, planAbs)
+  const planRel = rel && !rel.startsWith('..') && !isAbsolute(rel)
+    ? rel.split(sep).join('/')
+    : basename(planAbs)
+
+  const contractRel = planRel.startsWith('.choirmaster/plans/')
+    ? planRel.slice('.choirmaster/plans/'.length)
+    : planRel
+  const ext = extname(contractRel)
+  const withoutExt = ext ? contractRel.slice(0, -ext.length) : contractRel
+  return resolve(projectAbs, '.choirmaster/tasks', `${withoutExt}.tasks.json`)
 }
 
 function shortPath(absPath: string, projectRoot: string): string {

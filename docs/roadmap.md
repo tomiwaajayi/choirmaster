@@ -16,7 +16,7 @@ A developer should be able to install ChoirMaster, initialize a repo, write or g
 
 ChoirMaster should help the user write a good plan, not just execute one.
 
-The markdown plan is the human authoring surface. It can live anywhere in the repo; `.choirmaster/plans/` is only the scaffolded convention. The `*.tasks.json` is the generated execution contract; the runtime owns it, the user does not have to.
+The markdown plan is the human authoring surface. It can live anywhere in the repo; `.choirmaster/plans/` is only the scaffolded convention. Generated `*.tasks.json` contracts live under `.choirmaster/tasks/`; the runtime owns them, the user does not have to.
 
 ### Current 0.3.x Surface
 
@@ -40,7 +40,7 @@ The markdown plan is the human authoring surface. It can live anywhere in the re
 
 Today, ChoirMaster is markdown-first for normal use. A user can run `choirmaster run <plan.md>` and the planner turns that markdown into a validated `*.tasks.json` execution contract before the runtime starts.
 
-Users can also run `choirmaster plan <plan.md>` to generate the task file without executing it, then inspect or edit the generated contract before running `choirmaster run <tasks.json>`. The task file is still deliberately readable, but it is no longer the primary thing a new user should have to author by hand.
+Users can also run `choirmaster plan <plan.md>` to generate the task file under `.choirmaster/tasks/` without executing it, then inspect or edit the generated contract before running `choirmaster run <tasks.json>`. The task file is still deliberately readable, but it is no longer the primary thing a new user should have to author by hand.
 
 The plan-reviewer loop and GitHub issue planning are still future work. GitHub issues should eventually feed the same markdown-to-task pipeline rather than creating a second planning system.
 

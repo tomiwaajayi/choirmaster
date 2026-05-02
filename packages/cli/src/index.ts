@@ -15,16 +15,17 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { completionsCommand } from './commands/completions.js'
 import { doctorCommand } from './commands/doctor.js'
 import { draftCommand } from './commands/draft.js'
 import { initCommand } from './commands/init.js'
-import { planCommand } from './commands/plan.js'
+import { defaultTasksOutputPath, planCommand } from './commands/plan.js'
 import { runCommand } from './commands/run.js'
 import { completeMarkdownReferences, formatMarkdownReferenceError, resolveMarkdownReference } from './markdown-ref.js'
+import { resolveProjectRoot } from './project-root.js'
 
 // ── Library re-exports ──────────────────────────────────────────────────────
 
@@ -259,7 +260,11 @@ export async function main(argv: string[]): Promise<number> {
     if (tasksFile && tasksFile.toLowerCase().endsWith('.md')) {
       const planExit = await planCommand({ planFile: tasksFile, force: true })
       if (planExit !== 0) return planExit
-      tasksFile = tasksFile.replace(/\.md$/i, '.tasks.json')
+      const projectRoot = resolveProjectRoot(process.cwd())
+      tasksFile = relative(
+        projectRoot,
+        defaultTasksOutputPath(resolve(projectRoot, tasksFile), projectRoot),
+      )
     }
 
     return runCommand({

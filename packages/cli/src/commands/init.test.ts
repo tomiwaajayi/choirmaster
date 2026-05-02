@@ -23,8 +23,9 @@ describe('initCommand', () => {
 
     expect(code).toBe(0)
     expect(readFileSync(join(root, '.gitignore'), 'utf8')).toContain('.choirmaster/runs/')
-    expect(readFileSync(join(root, '.gitignore'), 'utf8')).toContain('.choirmaster/plans/*.tasks.json')
+    expect(readFileSync(join(root, '.gitignore'), 'utf8')).toContain('.choirmaster/tasks/')
     expect(existsSync(join(root, '.choirmaster/plans/example.md'))).toBe(true)
+    expect(existsSync(join(root, '.choirmaster/tasks'))).toBe(true)
     expect(existsSync(join(root, '.choirmaster/plans/example.tasks.json'))).toBe(false)
   })
 
@@ -96,7 +97,7 @@ describe('initCommand', () => {
 
     expect(code).toBe(0)
     expect(count(gitignore, '.choirmaster/runs/')).toBe(1)
-    expect(count(gitignore, '.choirmaster/plans/*.tasks.json')).toBe(1)
+    expect(count(gitignore, '.choirmaster/tasks/')).toBe(1)
   })
 
   it('does not add a second ChoirMaster header when upgrading an old gitignore block', async () => {
@@ -111,18 +112,18 @@ describe('initCommand', () => {
 
     expect(code).toBe(0)
     expect(count(gitignore, '# ChoirMaster')).toBe(1)
-    expect(gitignore).toContain('.choirmaster/plans/*.tasks.json')
+    expect(gitignore).toContain('.choirmaster/tasks/')
   })
 
-  it('does not add a redundant tasks glob when the plans directory is already ignored', async () => {
+  it('does not add a redundant tasks entry when the tasks directory is already ignored', async () => {
     const root = tempRoot()
-    writeFileSync(join(root, '.gitignore'), '.choirmaster/runs/\n.choirmaster/plans/\n')
+    writeFileSync(join(root, '.gitignore'), '.choirmaster/runs/\n.choirmaster/tasks/\n')
 
     const code = await initCommand({ cwd: root })
     const gitignore = readFileSync(join(root, '.gitignore'), 'utf8')
 
     expect(code).toBe(0)
-    expect(gitignore).not.toContain('.choirmaster/plans/*.tasks.json')
+    expect(count(gitignore, '.choirmaster/tasks/')).toBe(1)
   })
 })
 
