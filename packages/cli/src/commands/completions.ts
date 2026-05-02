@@ -39,8 +39,8 @@ _choirmaster() {
     'doctor:check repo, manifest, agents, gates, and network'
     'draft:create an editable markdown plan skeleton'
     'init:scaffold .choirmaster in the current repo'
-    'plan:decompose a markdown plan into a tasks file'
-    'run:run a markdown plan or tasks file'
+    'plan:decompose a markdown plan into a task contract'
+    'run:run a markdown plan'
     'completions:print shell completion script'
   )
 

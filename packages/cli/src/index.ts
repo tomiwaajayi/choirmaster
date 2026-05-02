@@ -57,16 +57,15 @@ Commands:
   doctor                         Check repo, manifest, agents, gates, and network
   draft [goal...]                Create an editable markdown plan skeleton
   init [--force | -f]           Scaffold .choirmaster/ in the current repo
-  plan <plan.md|@query>         Decompose a markdown plan into a tasks file
-  run <plan.md|@query|tasks.json>
-                                Plan-then-run markdown, or run a tasks file
+  plan <plan.md|@query>         Decompose a markdown plan into a task contract
+  run <plan.md|@query>          Plan-then-run markdown
   run --resume <run-id>         Resume a paused or interrupted run
   completions <zsh|bash|fish|powershell|nushell>
                                 Print shell completion script
 
 Plan options:
-  --output <path>               Write the generated tasks file here (any writable path)
-  --force, -f                   Overwrite an existing tasks file at the output path
+  --output <path>               Write the generated task contract here
+  --force, -f                   Overwrite an existing task contract at the output path
 
 Draft options:
   --from <path>                 Create a draft from notes or an issue body
@@ -226,23 +225,24 @@ export async function main(argv: string[]): Promise<number> {
     const inputFile = findPositionalArg(argList, consumed)
     if (resumeRunId.value && inputFile) {
       process.stderr.write(
-        `Pass either a plan/tasks file or --resume, not both. (got both '${inputFile}' and --resume ${resumeRunId.value})\n`,
+        `Pass either a plan file or --resume, not both. (got both '${inputFile}' and --resume ${resumeRunId.value})\n`,
       )
       return 64
     }
     if (!resumeRunId.value && !inputFile) {
       process.stderr.write(
         'Usage:\n'
-        + '  choirmaster run <plan.md|@query|tasks.json> [--continue-on-blocked] [--reuse-worktree] [--no-auto-merge]\n'
+        + '  choirmaster run <plan.md|@query> [--continue-on-blocked] [--reuse-worktree] [--no-auto-merge]\n'
         + '  choirmaster run --resume <run-id>\n',
       )
       return 64
     }
 
     // Plan-then-run: when the input is a markdown file, run the planner
-    // first, then dispatch the generated tasks file. Keeps the user-facing
-    // shape simple (`run <plan.md>`) while preserving `run <tasks.json>`
-    // for hand-authored or generated files. Plan-then-run forces overwrite
+    // first, then dispatch the generated task contract. Keeps the
+    // user-facing shape simple (`run <plan.md>`). Direct task-contract
+    // execution still works for internal/advanced workflows, but it is no
+    // longer advertised as the normal surface. Plan-then-run forces overwrite
     // on the generated file because fresh planning is the explicit intent
     // of this entry point; standalone `choirmaster plan` defaults to
     // refusing overwrites so reviewed/edited tasks files don't get

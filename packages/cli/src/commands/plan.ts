@@ -99,7 +99,7 @@ export async function planCommand(args: PlanCommandArgs): Promise<number> {
   process.stdout.write(
     `\nPlan generated: ${result.tasksGenerated} task(s) -> ${shortPath(result.outputPath, projectRoot)}\n`,
   )
-  process.stdout.write(`Run with: choirmaster run ${shortPath(result.outputPath, projectRoot)}\n\n`)
+  process.stdout.write(`Task contract written for inspection. Run with: choirmaster run ${planFile}\n\n`)
   return 0
 }
 

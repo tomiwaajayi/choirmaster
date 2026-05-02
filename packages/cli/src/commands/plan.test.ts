@@ -41,7 +41,7 @@ describe('planCommand', () => {
 
     expect(code).toBe(0)
     expect(stdout).toContain('Plan generated: 1 task(s) -> .choirmaster/tasks/example.tasks.json')
-    expect(stdout).toContain('Run with: choirmaster run .choirmaster/tasks/example.tasks.json')
+    expect(stdout).toContain('Task contract written for inspection. Run with: choirmaster run .choirmaster/plans/example.md')
     expect(existsSync(join(root, '.choirmaster/tasks/example.tasks.json'))).toBe(true)
     expect(existsSync(join(root, '.choirmaster/plans/example.tasks.json'))).toBe(false)
     expect(JSON.parse(readFileSync(join(root, '.choirmaster/tasks/example.tasks.json'), 'utf8')))

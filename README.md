@@ -6,7 +6,7 @@ ChoirMaster is a local CLI for developers and small teams who want to use AI cod
 
 The happy path is markdown-first: you write a plan, run `choirmaster run <plan.md>`, and ChoirMaster turns it into a validated task contract before executing it. Each task then moves through implementer → deterministic gates (typecheck / test / audit) → reviewer → commit → branch policy, all in isolated git worktrees.
 
-The generated `*.tasks.json` file is still there, readable, and safe to inspect or edit. It is the execution contract, not the thing a new user should have to hand-author on day one.
+The generated `*.tasks.json` file is still there, readable, and safe to inspect when you run `choirmaster plan`. It is the execution contract, not the normal user-facing surface.
 
 The agents do the work. ChoirMaster owns the loop, the gates, the worktrees, and the merges.
 
@@ -76,7 +76,7 @@ pnpm add -g choirmaster
 yarn global add choirmaster
 ```
 
-If you install globally, still add ChoirMaster to the project as a dev dependency so `.choirmaster/manifest.ts` can resolve `import { ... } from 'choirmaster'`.
+If you install globally, still add ChoirMaster to the project as a dev dependency so `.choirmaster/manifest.ts` can resolve `import { ... } from 'choirmaster'`. The global install gives you the `cm` command everywhere; the project install gives your repo's manifest its types and runtime imports.
 
 Every command is exposed as both `choirmaster` and the shorter `cm` alias. If you only install project-locally, run through your package manager:
 
@@ -154,9 +154,8 @@ choirmaster run @example
 # or use the explicit path
 choirmaster run .choirmaster/plans/example.md
 
-# alternatively: just plan, review the generated tasks file, then run
+# alternatively: just plan, then review the generated task contract
 choirmaster plan @example
-choirmaster run .choirmaster/tasks/example.tasks.json
 
 # resume a paused or interrupted run
 choirmaster run --resume <run-id>
