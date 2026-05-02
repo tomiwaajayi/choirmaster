@@ -21,16 +21,20 @@ The markdown plan is the human authoring surface. It can live anywhere in the re
 ### Current 0.3.x Surface
 
 - Single-package install: global CLI (`npm install -g choirmaster`) or project dev dependency (`npm install -D choirmaster` with `npx choirmaster`).
+- `choirmaster` and `cm` both work as first-class command names.
 - Markdown-first: `choirmaster run <plan.md>` is the primary path; `<tasks.json>` is the advanced/debug surface.
+- `choirmaster draft "goal"` and `choirmaster draft --from notes.md` create editable markdown plan skeletons before any model turn.
+- `choirmaster doctor` checks local setup before the user spends tokens on an agent run.
 - Repo-wide markdown shorthand: `cm run @example` can resolve a markdown plan without requiring the user to remember the full path.
 - Live markdown completions for common shells: zsh, bash, fish, PowerShell, and Nushell all call the same `cm __complete markdown @query` protocol.
+- `choirmaster init` defaults `manifest.base` to the current branch, falling back to `main` only when no branch can be detected.
 - Visible self-dogfood config in this repo (`.choirmaster/`), proving the runtime against itself.
 - Sandbox prepare hook for real worktrees (e.g. `pnpm install --frozen-lockfile`).
 
 ### Near-Term 0.3.x Direction
 
-- Plan authoring help: templates, `doctor`, or an interactive plan writer that turns rough intent into a reviewable plan.
-- Safe default branch behavior decided and documented: most likely a plan-level flow (`current branch -> plan branch -> task branches -> plan branch`) so a random first run never mutates `main` by surprise.
+- Interactive plan interviews: bounded question batches with recommended defaults that turn rough intent into a reviewable markdown plan without asking endless questions.
+- Safer plan-level branch behavior decided and documented: most likely a flow like `current branch -> plan branch -> task branches -> plan branch` so a random first run never mutates `main` by surprise.
 
 ## Current Reality
 
@@ -106,8 +110,12 @@ These are no longer roadmap items, but they shape the remaining work:
 - Retry caps can come from task overrides, manifest limits, or built-in defaults.
 - README and CLI help now describe the implemented surface rather than planned commands.
 - Single published `choirmaster` package: CLI, runtime, and Claude adapter bundled into one install.
+- `cm` alias ships alongside `choirmaster`.
 - `*.tasks.json` validation runs before any task starts, with cycle detection and unsafe-path rejection.
 - Markdown planner: `choirmaster plan <plan.md>` and `choirmaster run <plan.md>` decompose a markdown plan into a validated tasks file. Mutation guard refuses any planner edit outside `.choirmaster/plan-output.json`, including changes to gitignored files matching `forbiddenPaths`.
+- Markdown drafting: `choirmaster draft "goal"` and `choirmaster draft --from notes.md` generate editable markdown plan skeletons with concise clarifying questions and recommended defaults.
+- Markdown shorthand and completions: `@query` resolves markdown plans anywhere in the repo, and generated shell completion scripts provide live `@query` suggestions for zsh, bash, fish, PowerShell, and Nushell.
+- Init branch defaults: `choirmaster init` initializes `manifest.base` from the current branch and escapes unusual branch names safely; detached or non-git directories fall back to `main`.
 - Sandbox prepare hook: `worktreeSandbox({ prepare: { command: 'pnpm install --frozen-lockfile' } })` runs once per fresh worktree before any agent turn. Prepare failure blocks the task immediately instead of consuming implementer attempts.
 - Duplicate gate-failure detection: two consecutive attempts with the same normalized failure signature block the task instead of burning the rest of the retry budget on an environment problem.
 - First successful self-dogfood: ChoirMaster ran a markdown plan against its own repo, generated tasks, ran sandbox prepare, passed `pnpm typecheck` / `pnpm test` / `pnpm build` gates, and merged a docs task branch onto `main`.
@@ -353,7 +361,8 @@ Suggested release milestones:
 
 - `0.2.x`: Trust core stabilized enough to dogfood: final-verify resume fixed, task-file validation, resume tests, and safer runtime guardrails.
 - `0.3.0`: Single-package install plus markdown-first planning: `choirmaster run <plan.md>` compiles a markdown plan into a validated task file and runs it.
-- `0.3.x`: Plan authoring help, safer branch defaults, and polish discovered through continued self-dogfood.
+- `0.3.x`: Plan authoring help, `cm` alias, live `@query` completions, doctor polish, safer branch defaults, and fixes discovered through continued self-dogfood.
+- `0.3.5`: Patch line for the live init-base bug: new scaffolds default `manifest.base` to the current branch instead of assuming `main`.
 - `0.4.x`: Daily local use polished: plan/task docs, examples, better logs, status/logs/inspect basics.
 - `0.5.x`: GitHub/team workflow: issue input, PR creation, comment summaries.
 - `0.6.x`: Hard guardrails: Docker sandbox and stricter permission profiles.
