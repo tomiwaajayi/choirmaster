@@ -70,7 +70,7 @@ _choirmaster() {
       compadd -- --cwd --skip-network --offline
       ;;
     init)
-      compadd -- --force
+      compadd -- --force -f
       ;;
   esac
 }
@@ -106,7 +106,7 @@ const BASH_COMPLETION = `_choirmaster_completion() {
       COMPREPLY=( $(compgen -W "--cwd --skip-network --offline" -- "$cur") )
       ;;
     init)
-      COMPREPLY=( $(compgen -W "--force" -- "$cur") )
+      COMPREPLY=( $(compgen -W "--force -f" -- "$cur") )
       ;;
   esac
 }
@@ -203,7 +203,7 @@ const POWERSHELL_COMPLETION = `Register-ArgumentCompleter -Native -CommandName c
         ForEach-Object { New-ChoirCompletion $_ 'ParameterName' }
     }
     'init' {
-      '--force' |
+      '--force', '-f' |
         Where-Object { $_ -like "$wordToComplete*" } |
         ForEach-Object { New-ChoirCompletion $_ 'ParameterName' }
     }

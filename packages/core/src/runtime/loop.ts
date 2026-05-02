@@ -171,7 +171,13 @@ export async function runTask(
   const baseRef = ctx.config.base
   const baseSha = revParse(baseRef, ctx.projectRoot)
   if (!baseSha) {
-    return blockTask(ctx, state, task, logger, `Cannot resolve base ref '${baseRef}' to a SHA. Is the branch checked out and up to date?`)
+    return blockTask(
+      ctx,
+      state,
+      task,
+      logger,
+      `Cannot resolve manifest.base '${baseRef}' to a SHA. Check that the branch exists locally, or edit .choirmaster/manifest.ts to set base to the branch you want ChoirMaster to fork from and merge back into.`,
+    )
   }
   const rootBranch = currentBranch(ctx.projectRoot)
   if (rootBranch !== baseRef) {

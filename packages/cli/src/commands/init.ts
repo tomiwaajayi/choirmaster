@@ -8,6 +8,7 @@
  * unless `--force` is passed.
  */
 
+import { spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -31,7 +32,9 @@ export async function initCommand(args: InitCommandArgs = {}): Promise<number> {
   mkdirSync(join(choirDir, 'prompts'), { recursive: true })
   mkdirSync(join(choirDir, 'plans'), { recursive: true })
 
-  writeFileSync(join(choirDir, 'manifest.ts'), MANIFEST_TEMPLATE)
+  const baseBranch = currentGitBranch(cwd) ?? 'main'
+
+  writeFileSync(join(choirDir, 'manifest.ts'), manifestTemplate(baseBranch))
   writeFileSync(join(choirDir, 'prompts', 'planner.md'), PLANNER_TEMPLATE)
   writeFileSync(join(choirDir, 'prompts', 'plan-reviewer.md'), PLAN_REVIEWER_TEMPLATE)
   writeFileSync(join(choirDir, 'prompts', 'implementer.md'), IMPLEMENTER_TEMPLATE)
@@ -55,7 +58,8 @@ export async function initCommand(args: InitCommandArgs = {}): Promise<number> {
   process.stdout.write(`  2. Make sure the 'claude' CLI is installed and authenticated:\n`)
   process.stdout.write(`     claude --version\n`)
   process.stdout.write(`  3. Edit .choirmaster/manifest.ts:\n`)
-  process.stdout.write(`     - Set 'base' to your default branch (main, staging, etc.)\n`)
+  process.stdout.write(`     - 'base' was initialized to '${baseBranch}' from the current branch\n`)
+  process.stdout.write(`     - Change 'base' if you want tasks to fork from and merge into another branch\n`)
   process.stdout.write(`     - Add gates (typecheck/test commands) if you want them enforced per task\n`)
   process.stdout.write(`     - Tune strictInstructions and forbiddenPaths for your project\n`)
   process.stdout.write(`  4. Check your setup:\n`)
@@ -95,6 +99,16 @@ const GITIGNORE_ENTRY = `# ChoirMaster generated artifacts (do not commit)
 ${GITIGNORE_LINES.join('\n')}
 `
 
+function currentGitBranch(cwd: string): string | null {
+  const result = spawnSync('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], {
+    cwd,
+    encoding: 'utf8',
+  })
+  if (result.status !== 0) return null
+  const branch = result.stdout.trim()
+  return branch || null
+}
+
 function hasEquivalentIgnoreRule(content: string, required: string): boolean {
   const rules = content
     .split(/\r?\n/)
@@ -118,11 +132,12 @@ function hasEquivalentIgnoreRule(content: string, required: string): boolean {
 // Templates
 // ────────────────────────────────────────────────────────────────────────────
 
-const MANIFEST_TEMPLATE = `import { claude, defineProject, perTaskMerge, worktreeSandbox } from 'choirmaster'
+function manifestTemplate(baseBranch: string): string {
+  return `import { claude, defineProject, perTaskMerge, worktreeSandbox } from 'choirmaster'
 
 export default defineProject({
   // The branch tasks will fork from and (with perTaskMerge) merge back into.
-  base: 'main',
+  base: ${JSON.stringify(baseBranch)},
 
   // Claude is the default for every role. Mix models per role; future
   // releases will export additional agent factories alongside \`claude\`.
@@ -185,6 +200,7 @@ export default defineProject({
   // },
 })
 `
+}
 
 const PLANNER_TEMPLATE = `# Planner agent
 

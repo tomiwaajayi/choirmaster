@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -25,6 +26,27 @@ describe('initCommand', () => {
     expect(readFileSync(join(root, '.gitignore'), 'utf8')).toContain('.choirmaster/plans/*.tasks.json')
     expect(existsSync(join(root, '.choirmaster/plans/example.md'))).toBe(true)
     expect(existsSync(join(root, '.choirmaster/plans/example.tasks.json'))).toBe(false)
+  })
+
+  it('initializes manifest.base from the current git branch', async () => {
+    const root = tempRoot()
+    sh('git init -b toms-playground', root)
+
+    const code = await initCommand({ cwd: root })
+    const manifest = readFileSync(join(root, '.choirmaster/manifest.ts'), 'utf8')
+
+    expect(code).toBe(0)
+    expect(manifest).toContain('base: "toms-playground"')
+  })
+
+  it('falls back to main outside a git repository', async () => {
+    const root = tempRoot()
+
+    const code = await initCommand({ cwd: root })
+    const manifest = readFileSync(join(root, '.choirmaster/manifest.ts'), 'utf8')
+
+    expect(code).toBe(0)
+    expect(manifest).toContain('base: "main"')
   })
 
   it('adds missing ChoirMaster ignore rules without duplicating existing ones', async () => {
@@ -74,4 +96,11 @@ function tempRoot(): string {
 
 function count(value: string, needle: string): number {
   return value.split(needle).length - 1
+}
+
+function sh(command: string, cwd: string): void {
+  const result = spawnSync(command, { cwd, shell: true, encoding: 'utf8' })
+  if (result.status !== 0) {
+    throw new Error(`command failed: ${command}\n${result.stderr || result.stdout}`)
+  }
 }

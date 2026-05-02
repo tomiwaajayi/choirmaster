@@ -129,7 +129,7 @@ The examples below use `choirmaster`. Use `cm` for the shorter alias, or prefix 
 # scaffold .choirmaster/ in your project
 choirmaster init
 
-# edit .choirmaster/manifest.ts (set base branch, gates, retry caps)
+# edit .choirmaster/manifest.ts (base defaults to current branch; set gates/retry caps)
 # draft what you want done in markdown
 # (a worked example lives at .choirmaster/plans/example.md)
 choirmaster draft "add onboarding notes for new contributors"
