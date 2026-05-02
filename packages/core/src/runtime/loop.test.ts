@@ -374,6 +374,26 @@ describe('runTask', () => {
     expect(reviewer.calls).toBe(1)
   })
 
+  it('unresolved manifest base reports the current branch', async () => {
+    const { config, implementer, reviewer } = buildConfig(
+      env,
+      [turnHandoff(TASK_ID, { verdict: 'READY_FOR_REVIEW' })],
+      [turnReview(TASK_ID, { verdict: 'READY' })],
+    )
+    config.base = 'missing/base'
+    const ctx = buildContext(env, config)
+    saveState(env.runDir, buildState(buildTask()))
+    const { state, task } = reload(env, TASK_ID)
+
+    await runTask(ctx, state, task)
+
+    expect(task.status).toBe('blocked')
+    expect(task.blocked_reason ?? '').toContain("manifest.base 'missing/base'")
+    expect(task.blocked_reason ?? '').toContain("You're currently on 'main'")
+    expect(implementer.calls).toBe(0)
+    expect(reviewer.calls).toBe(0)
+  })
+
   it('reviewer capacity pause resumes the same iteration', async () => {
     const { config, reviewer } = buildConfig(
       env,
