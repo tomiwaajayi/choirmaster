@@ -96,6 +96,38 @@ jobs:
           git config user.email test@example.com
           git config user.name Test
           npx cm init >/dev/null
+          cat > .choirmaster/manifest.ts <<'EOF'
+          import { defineProject, perTaskMerge, worktreeSandbox } from 'choirmaster'
+
+          const fakeAgent = (name) => ({
+            name: `fake:${name}`,
+            engine: 'fake',
+            model: name,
+            async invoke() {
+              throw new Error('not used by CI smoke')
+            },
+          })
+
+          export default defineProject({
+            base: 'main',
+            agents: {
+              planner: fakeAgent('planner'),
+              implementer: fakeAgent('implementer'),
+              reviewer: fakeAgent('reviewer'),
+            },
+            gates: [],
+            branchPolicy: perTaskMerge(),
+            sandbox: worktreeSandbox(),
+            prompts: {
+              planner: '.choirmaster/prompts/planner.md',
+              planReviewer: '.choirmaster/prompts/plan-reviewer.md',
+              implementer: '.choirmaster/prompts/implementer.md',
+              reviewer: '.choirmaster/prompts/reviewer.md',
+            },
+            forbiddenPaths: ['.env', '.env.*'],
+            strictInstructions: [],
+          })
+          EOF
           git add -A
           git commit -m initial >/dev/null
           npx cm doctor --skip-network
