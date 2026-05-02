@@ -3,8 +3,8 @@
  *
  * Scaffolds `.choirmaster/` in the current repo: typed manifest, prompt
  * files for planner, plan reviewer, implementer, and reviewer, an example
- * markdown plan, an example tasks file, and a `.gitignore` entry for the
- * per-run state directory. Refuses to overwrite an existing `.choirmaster/`
+ * markdown plan, an example tasks file, and `.gitignore` entries for generated
+ * runtime artifacts. Refuses to overwrite an existing `.choirmaster/`
  * unless `--force` is passed.
  */
 
@@ -74,15 +74,25 @@ export async function initCommand(args: InitCommandArgs = {}): Promise<number> {
 
 function ensureGitignoreEntry(cwd: string): void {
   const path = join(cwd, '.gitignore')
-  const entry = `\n# ChoirMaster per-run state and logs (do not commit)\n.choirmaster/runs/\n`
   if (!existsSync(path)) {
-    writeFileSync(path, entry.trimStart())
+    writeFileSync(path, GITIGNORE_ENTRY.trimStart())
     return
   }
   const current = readFileSync(path, 'utf8')
-  if (current.includes('.choirmaster/runs')) return
-  appendFileSync(path, entry)
+  const missingLines = GITIGNORE_LINES.filter((line) => !current.includes(line))
+  if (missingLines.length === 0) return
+  const prefix = current.endsWith('\n') ? '\n' : '\n\n'
+  appendFileSync(path, `${prefix}# ChoirMaster generated artifacts (do not commit)\n${missingLines.join('\n')}\n`)
 }
+
+const GITIGNORE_LINES = [
+  '.choirmaster/runs/',
+  '.choirmaster/plans/*.tasks.json',
+]
+
+const GITIGNORE_ENTRY = `# ChoirMaster generated artifacts (do not commit)
+${GITIGNORE_LINES.join('\n')}
+`
 
 // ────────────────────────────────────────────────────────────────────────────
 // Templates
