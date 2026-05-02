@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url'
 
 import { completionsCommand } from './commands/completions.js'
 import { doctorCommand } from './commands/doctor.js'
+import { draftCommand } from './commands/draft.js'
 import { initCommand } from './commands/init.js'
 import { planCommand } from './commands/plan.js'
 import { runCommand } from './commands/run.js'
@@ -53,6 +54,7 @@ Usage:
 
 Commands:
   doctor                         Check repo, manifest, agents, gates, and network
+  draft [goal]                   Create an editable markdown plan skeleton
   init [--force]                Scaffold .choirmaster/ in the current repo
   plan <plan.md|@query>         Decompose a markdown plan into a tasks file
   run <plan.md|@query|tasks.json>
@@ -64,6 +66,11 @@ Commands:
 Plan options:
   --output <path>               Write the generated tasks file here
   --force, -f                   Overwrite an existing tasks file at the output path
+
+Draft options:
+  --from <path>                 Create a draft from notes or an issue body
+  --output <path>               Write the markdown plan here
+  --force, -f                   Overwrite an existing markdown plan
 
 Markdown shortcuts:
   @query                        Match markdown files in the repo, e.g. cm run @example
@@ -135,6 +142,45 @@ export async function main(argv: string[]): Promise<number> {
     return doctorCommand({
       cwd,
       skipNetwork: argList.includes('--skip-network') || argList.includes('--offline'),
+    })
+  }
+
+  if (command === 'draft') {
+    const argList = args.slice(1)
+    const consumed = new Set<number>()
+    const fromIdx = argList.indexOf('--from')
+    let fromFile: string | undefined
+    if (fromIdx !== -1) {
+      fromFile = argList[fromIdx + 1]
+      if (!fromFile) {
+        process.stderr.write('--from requires a path.\n')
+        return 64
+      }
+      consumed.add(fromIdx)
+      consumed.add(fromIdx + 1)
+    }
+
+    const outputIdx = argList.indexOf('--output')
+    let outputFile: string | undefined
+    if (outputIdx !== -1) {
+      outputFile = argList[outputIdx + 1]
+      if (!outputFile) {
+        process.stderr.write('--output requires a path.\n')
+        return 64
+      }
+      consumed.add(outputIdx)
+      consumed.add(outputIdx + 1)
+    }
+
+    const goal = argList
+      .filter((arg, i) => !consumed.has(i) && arg !== '--force' && arg !== '-f' && !arg.startsWith('-'))
+      .join(' ')
+
+    return draftCommand({
+      goal,
+      fromFile,
+      outputFile,
+      force: argList.includes('--force') || argList.includes('-f'),
     })
   }
 

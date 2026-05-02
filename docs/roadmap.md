@@ -138,6 +138,7 @@ Core commands:
 
 - `choirmaster init`
 - `choirmaster doctor`
+- `choirmaster draft "goal"` and `choirmaster draft --from notes.md`
 - `choirmaster run <plan.md>`
 - `choirmaster plan <plan.md>`
 - `choirmaster run <tasks.json>` as the advanced/debug path
@@ -147,6 +148,7 @@ Core commands:
 
 Needed polish:
 
+- Agent-assisted plan interviews: bounded question batches with recommended defaults, especially for migrations and broad goals.
 - Clear plan authoring guidance, with examples of good and bad plans.
 - Clear task schema documentation for users who want to inspect or edit generated contracts.
 - Examples for TypeScript, Python, Rails, and generic shell-gated projects.

@@ -8,6 +8,7 @@ describe('completionsCommand', () => {
 
     expect(code).toBe(0)
     expect(stdout).toContain('compdef _choirmaster choirmaster')
+    expect(stdout).toContain('draft:create an editable markdown plan skeleton')
     expect(stdout).toContain('__complete markdown "$cur"')
     expect(stdout).toContain('powershell pwsh nushell nu')
   })
@@ -16,6 +17,7 @@ describe('completionsCommand', () => {
     const { code, stdout } = capture(() => completionsCommand({ shell: 'bash' }))
 
     expect(code).toBe(0)
+    expect(stdout).toContain('doctor draft init plan run completions')
     expect(stdout).toContain('complete -F _choirmaster_completion cm')
     expect(stdout).toContain('__complete markdown "$cur"')
   })
@@ -25,6 +27,7 @@ describe('completionsCommand', () => {
 
     expect(code).toBe(0)
     expect(stdout).toContain('function __choirmaster_complete_markdown')
+    expect(stdout).toContain('doctor draft init plan run completions')
     expect(stdout).toContain('__complete markdown $token')
   })
 
@@ -33,6 +36,7 @@ describe('completionsCommand', () => {
 
     expect(code).toBe(0)
     expect(stdout).toContain('Register-ArgumentCompleter')
+    expect(stdout).toContain("'doctor', 'draft', 'init', 'plan', 'run', 'completions'")
     expect(stdout).toContain('__complete markdown $wordToComplete')
   })
 
@@ -54,6 +58,7 @@ describe('completionsCommand', () => {
     const { code, stdout } = capture(() => completionsCommand({ shell: 'nushell' }))
 
     expect(code).toBe(0)
+    expect(stdout).toContain('extern "choirmaster draft"')
     expect(stdout).toContain('extern "choirmaster plan"')
     expect(stdout).toContain('__complete markdown $token')
     expect(stdout).toContain('^$bin __complete markdown $token')

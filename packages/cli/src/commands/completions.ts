@@ -37,6 +37,7 @@ _choirmaster() {
   local -a commands
   commands=(
     'doctor:check repo, manifest, agents, gates, and network'
+    'draft:create an editable markdown plan skeleton'
     'init:scaffold .choirmaster in the current repo'
     'plan:decompose a markdown plan into a tasks file'
     'run:run a markdown plan or tasks file'
@@ -62,6 +63,9 @@ _choirmaster() {
     completions)
       compadd zsh bash fish powershell pwsh nushell nu
       ;;
+    draft)
+      compadd -- --from --output --force -f
+      ;;
     doctor)
       compadd -- --cwd --skip-network --offline
       ;;
@@ -80,7 +84,7 @@ const BASH_COMPLETION = `_choirmaster_completion() {
   local subcommand="\${COMP_WORDS[1]}"
 
   if [[ "\${COMP_CWORD}" -eq 1 ]]; then
-    COMPREPLY=( $(compgen -W "doctor init plan run completions" -- "$cur") )
+    COMPREPLY=( $(compgen -W "doctor draft init plan run completions" -- "$cur") )
     return 0
   fi
 
@@ -94,6 +98,9 @@ const BASH_COMPLETION = `_choirmaster_completion() {
       ;;
     completions)
       COMPREPLY=( $(compgen -W "zsh bash fish powershell pwsh nushell nu" -- "$cur") )
+      ;;
+    draft)
+      COMPREPLY=( $(compgen -W "--from --output --force -f" -- "$cur") )
       ;;
     doctor)
       COMPREPLY=( $(compgen -W "--cwd --skip-network --offline" -- "$cur") )
@@ -116,14 +123,23 @@ const FISH_COMPLETION = `function __choirmaster_complete_markdown
   end
 end
 
-complete -c choirmaster -f -n "not __fish_seen_subcommand_from doctor init plan run completions" -a "doctor init plan run completions"
-complete -c cm -f -n "not __fish_seen_subcommand_from doctor init plan run completions" -a "doctor init plan run completions"
+complete -c choirmaster -f -n "not __fish_seen_subcommand_from doctor draft init plan run completions" -a "doctor draft init plan run completions"
+complete -c cm -f -n "not __fish_seen_subcommand_from doctor draft init plan run completions" -a "doctor draft init plan run completions"
 
 complete -c choirmaster -f -n "__fish_seen_subcommand_from plan run; and string match -q '@*' -- (commandline -ct)" -a "(__choirmaster_complete_markdown)"
 complete -c cm -f -n "__fish_seen_subcommand_from plan run; and string match -q '@*' -- (commandline -ct)" -a "(__choirmaster_complete_markdown)"
 
 complete -c choirmaster -n "__fish_seen_subcommand_from completions" -a "zsh bash fish powershell pwsh nushell nu"
 complete -c cm -n "__fish_seen_subcommand_from completions" -a "zsh bash fish powershell pwsh nushell nu"
+
+complete -c choirmaster -n "__fish_seen_subcommand_from draft" -l from -r
+complete -c choirmaster -n "__fish_seen_subcommand_from draft" -l output -r
+complete -c choirmaster -n "__fish_seen_subcommand_from draft" -l force
+complete -c choirmaster -n "__fish_seen_subcommand_from draft" -s f
+complete -c cm -n "__fish_seen_subcommand_from draft" -l from -r
+complete -c cm -n "__fish_seen_subcommand_from draft" -l output -r
+complete -c cm -n "__fish_seen_subcommand_from draft" -l force
+complete -c cm -n "__fish_seen_subcommand_from draft" -s f
 
 complete -c choirmaster -n "__fish_seen_subcommand_from doctor" -l cwd -r
 complete -c choirmaster -n "__fish_seen_subcommand_from doctor" -l skip-network
@@ -148,7 +164,7 @@ const POWERSHELL_COMPLETION = `Register-ArgumentCompleter -Native -CommandName c
     [System.Management.Automation.CompletionResult]::new($value, $value, $type, $value)
   }
 
-  $knownCommands = @('doctor', 'init', 'plan', 'run', 'completions')
+  $knownCommands = @('doctor', 'draft', 'init', 'plan', 'run', 'completions')
   if ($words.Count -le 1 -or ($words.Count -le 2 -and $knownCommands -notcontains $subcommand)) {
     $knownCommands |
       Where-Object { $_ -like "$wordToComplete*" } |
@@ -174,6 +190,11 @@ const POWERSHELL_COMPLETION = `Register-ArgumentCompleter -Native -CommandName c
         Where-Object { $_ -like "$wordToComplete*" } |
         ForEach-Object { New-ChoirCompletion $_ }
     }
+    'draft' {
+      '--from', '--output', '--force', '-f' |
+        Where-Object { $_ -like "$wordToComplete*" } |
+        ForEach-Object { New-ChoirCompletion $_ 'ParameterName' }
+    }
     'doctor' {
       '--cwd', '--skip-network', '--offline' |
         Where-Object { $_ -like "$wordToComplete*" } |
@@ -189,7 +210,7 @@ const POWERSHELL_COMPLETION = `Register-ArgumentCompleter -Native -CommandName c
 `
 
 const NUSHELL_COMPLETION = `def "nu-complete choirmaster commands" [] {
-  [doctor init plan run completions]
+  [doctor draft init plan run completions]
 }
 
 def "nu-complete choirmaster shells" [] {
@@ -217,6 +238,20 @@ extern "cm" [
 
 extern "choirmaster plan" [
   plan?: string@"nu-complete choirmaster markdown"
+  --output: string
+  --force(-f)
+]
+
+extern "choirmaster draft" [
+  goal?: string
+  --from: string
+  --output: string
+  --force(-f)
+]
+
+extern "cm draft" [
+  goal?: string
+  --from: string
   --output: string
   --force(-f)
 ]

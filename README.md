@@ -130,8 +130,12 @@ The examples below use `choirmaster`. Use `cm` for the shorter alias, or prefix 
 choirmaster init
 
 # edit .choirmaster/manifest.ts (set base branch, gates, retry caps)
-# write what you want done in markdown
+# draft what you want done in markdown
 # (a worked example lives at .choirmaster/plans/example.md)
+choirmaster draft "add onboarding notes for new contributors"
+
+# or draft from existing notes / an issue body
+choirmaster draft --from notes.md
 
 # check your setup before invoking an agent
 choirmaster doctor
@@ -162,7 +166,7 @@ choirmaster run .choirmaster/plans/example.md --no-auto-merge
 
 ### Where it's going
 
-- Plan authoring help: templates or an interactive plan writer that helps turn rough intent into a strong markdown plan
+- Agent-assisted plan interviews: bounded question batches with recommended defaults for large or ambiguous goals
 - Plan reviewer loop: a second agent reviews the generated task contract before execution
 - Safer plan-level branch flow, likely `current branch -> plan branch -> task branches -> plan branch`
 - Daily workflow commands: `status`, `logs`, `inspect`, `retry`, and `reset`

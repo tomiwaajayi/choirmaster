@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -50,6 +50,17 @@ describe('CLI completion dispatch', () => {
 
     expect(code).toBe(0)
     expect(stdout).toContain('complete -F _choirmaster_completion cm')
+  })
+
+  it('dispatches draft goals to the draft command', async () => {
+    const root = setupRepo()
+
+    const { code, stdout } = await captureMain(root, ['node', 'cm', 'draft', 'add', 'rate', 'limits'])
+
+    expect(code).toBe(0)
+    expect(stdout).toContain('Draft plan created: .choirmaster/plans/add-rate-limits.md')
+    expect(readFileSync(join(root, '.choirmaster/plans/add-rate-limits.md'), 'utf8'))
+      .toContain('# Plan: Add Rate Limits')
   })
 })
 
