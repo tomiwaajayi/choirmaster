@@ -1,6 +1,6 @@
 {
   "name": "@choirmaster/core",
-  "version": "0.3.2",
+  "version": "0.3.4",
   "description": "ChoirMaster runtime (internal). Bundled into the published `choirmaster` package; do not depend on this directly.",
   "private": true,
   "type": "module",

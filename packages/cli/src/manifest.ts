@@ -15,6 +15,7 @@ const CANDIDATES = [
   '.choirmaster/manifest.mjs',
   '.choirmaster/manifest.js',
 ]
+const REQUIRED_KEYS = ['base', 'agents', 'gates', 'branchPolicy', 'sandbox', 'prompts'] as const
 
 export async function loadManifest(projectRoot: string): Promise<ProjectConfig> {
   for (const rel of CANDIDATES) {
@@ -46,15 +47,39 @@ function assertProjectConfig(mod: unknown, source: string): ProjectConfig {
   if (mod === null || typeof mod !== 'object') {
     throw new Error(`Manifest at ${source} did not export an object.`)
   }
-  const candidate = (mod as { default?: unknown }).default ?? mod
+  const candidate = unwrapManifestExport(mod)
   if (candidate === null || typeof candidate !== 'object') {
     throw new Error(`Manifest at ${source} default export must be a ProjectConfig object.`)
   }
   const config = candidate as Partial<ProjectConfig>
-  for (const key of ['base', 'agents', 'gates', 'branchPolicy', 'sandbox', 'prompts'] as const) {
+  for (const key of REQUIRED_KEYS) {
     if (!(key in config)) {
       throw new Error(`Manifest at ${source} is missing required field: ${key}`)
     }
   }
   return config as ProjectConfig
+}
+
+function unwrapManifestExport(value: unknown): unknown {
+  let candidate = value
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (hasProjectConfigShape(candidate)) {
+      return candidate
+    }
+    if (candidate === null || typeof candidate !== 'object' || !('default' in candidate)) {
+      return candidate
+    }
+    const next = (candidate as { default?: unknown }).default
+    if (next === undefined || next === candidate) {
+      return candidate
+    }
+    candidate = next
+  }
+  return candidate
+}
+
+function hasProjectConfigShape(value: unknown): boolean {
+  return value !== null
+    && typeof value === 'object'
+    && REQUIRED_KEYS.every((key) => key in value)
 }
