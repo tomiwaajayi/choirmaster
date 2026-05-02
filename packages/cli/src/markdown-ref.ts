@@ -55,7 +55,7 @@ export function formatMarkdownReferenceError(result: Extract<MarkdownReferenceRe
     lines.push('')
     lines.push(result.suggestionsLabel ?? 'Matches:')
     for (const suggestion of result.suggestions) {
-      lines.push(`  ${suggestion}`)
+      lines.push(`  ${suggestion.replace(/[\n\r]/g, '')}`)
     }
   }
   return `${lines.join('\n')}\n`
