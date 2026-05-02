@@ -91,6 +91,18 @@ describe('CLI completion dispatch', () => {
     expect(plan.code).toBe(1)
     expect(plan.stderr).toContain('No manifest found')
   })
+
+  it('run @query executes the task contract generated under .choirmaster/tasks', async () => {
+    const root = setupPlanThenRunRepo()
+
+    const { code, stdout } = await captureMain(root, ['node', 'cm', 'run', '@example'])
+
+    expect(code).toBe(2)
+    expect(stdout).toContain('Plan generated: 1 task(s) -> .choirmaster/tasks/example.tasks.json')
+    expect(stdout).toContain('Task contract written for inspection. Run with: choirmaster run .choirmaster/plans/example.md')
+    expect(stdout).toContain('1 task(s) loaded from .choirmaster/tasks/example.tasks.json')
+    expect(stdout).toContain('sandbox.setup failed: planned-contract-loaded')
+  })
 })
 
 async function captureMain(
@@ -135,6 +147,63 @@ function setupRepo(files: Record<string, string> = {}): string {
 
   sh('git add -A && git commit -m initial --allow-empty', root)
   return root
+}
+
+function setupPlanThenRunRepo(): string {
+  const root = setupRepo({
+    '.choirmaster/plans/example.md': '# Example\n',
+    '.choirmaster/prompts/planner.md': '# Planner\n',
+    '.choirmaster/prompts/implementer.md': '# Implementer\n',
+    '.choirmaster/prompts/reviewer.md': '# Reviewer\n',
+    '.choirmaster/manifest.js': fakeManifest(),
+  })
+  return root
+}
+
+function fakeManifest(): string {
+  return `const task = {
+  id: 'TASK-01',
+  title: 'Example',
+  branch: 'choirmaster/task-01',
+  worktree: '.choirmaster/runs/active/worktrees/task-01',
+  allowed_paths: ['NOTES.md'],
+  forbidden_paths: [],
+  gates: [],
+  definition_of_done: ['NOTES.md exists'],
+}
+
+const planner = {
+  name: 'fake:planner',
+  engine: 'fake',
+  model: 'planner',
+  async invoke(opts) {
+    await import('node:fs').then(({ mkdirSync, writeFileSync }) => {
+      mkdirSync(opts.cwd + '/.choirmaster', { recursive: true })
+      writeFileSync(opts.cwd + '/.choirmaster/plan-output.json', JSON.stringify([task]))
+    })
+    return { status: 0, stdout: '', stderr: '', durationMs: 1, capacityHit: false }
+  },
+}
+
+export default {
+  base: 'main',
+  agents: {
+    planner,
+    implementer: planner,
+    reviewer: planner,
+  },
+  gates: [],
+  branchPolicy: { name: 'test-policy', async onTaskCompleted() { return { kind: 'ok' } } },
+  sandbox: { name: 'test-sandbox', async setup() { throw new Error('planned-contract-loaded') } },
+  prompts: {
+    planner: '.choirmaster/prompts/planner.md',
+    implementer: '.choirmaster/prompts/implementer.md',
+    reviewer: '.choirmaster/prompts/reviewer.md',
+  },
+  forbiddenPaths: ['.env', '.env.*'],
+  strictInstructions: [],
+}
+`
 }
 
 function sh(command: string, cwd: string): void {

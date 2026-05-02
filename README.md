@@ -62,6 +62,11 @@ The repo is a pnpm workspace with internal modules (`packages/core`, `packages/a
 └─ runs/<run-id>/         # per-run state, logs (gitignored)
 ```
 
+For teams, commit the parts that define shared behavior: `manifest.ts`,
+`prompts/`, and any markdown plans the team should reuse. Generated
+contracts in `tasks/` and run state in `runs/` are ignored by default and
+should stay local to each developer.
+
 ## Install
 
 ```bash

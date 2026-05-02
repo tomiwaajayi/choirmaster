@@ -214,6 +214,11 @@ Dependencies matter here: dependent tasks usually want a cumulative base (plan b
 
 The planner emits the plan-level policy at generation time; the user can override in the plan markdown or at run time.
 
+Team repos also need a clean tracked/local split. Shared project behavior
+belongs in committed `.choirmaster/manifest.ts`, prompts, and reusable
+markdown plans. Per-developer artifacts (`.choirmaster/runs/`,
+`.choirmaster/tasks/`, future local overrides) should stay ignored.
+
 Success criteria:
 
 - A user can write intent in markdown and get a conservative, reviewable task plan.

@@ -125,6 +125,21 @@ describe('initCommand', () => {
     expect(code).toBe(0)
     expect(count(gitignore, '.choirmaster/tasks/')).toBe(1)
   })
+
+  it('removes the obsolete generated-tasks ignore rule from older scaffolds', async () => {
+    const root = tempRoot()
+    writeFileSync(
+      join(root, '.gitignore'),
+      '.choirmaster/runs/\n.choirmaster/plans/*.tasks.json\n',
+    )
+
+    const code = await initCommand({ cwd: root })
+    const gitignore = readFileSync(join(root, '.gitignore'), 'utf8')
+
+    expect(code).toBe(0)
+    expect(gitignore).not.toContain('.choirmaster/plans/*.tasks.json')
+    expect(gitignore).toContain('.choirmaster/tasks/')
+  })
 })
 
 function tempRoot(): string {

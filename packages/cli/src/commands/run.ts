@@ -1,14 +1,17 @@
 /**
- * `choirmaster run <tasks.json>` or `choirmaster run --resume <run-id>`
+ * `choirmaster run <plan.md|@query>` or `choirmaster run --resume <run-id>`
  *
- * Fresh mode: loads tasks.json, creates a new per-run directory, drives
- * every pending task through the orchestration loop.
+ * Fresh mode usually enters through the CLI dispatcher: markdown plans are
+ * compiled into task contracts, then this command loads that contract,
+ * creates a new per-run directory, and drives every pending task through
+ * the orchestration loop. Direct task-contract execution still works for
+ * advanced/internal workflows, but it is not the normal user surface.
  *
  * Resume mode: loads an existing run's state.json and continues from
  * wherever it paused (capacity, blocked-but-still-fixable, killed
  * mid-run). The same orchestration loop handles both because runTask is
  * already phase-aware - the CLI just supplies the state instead of
- * minting it from a tasks file.
+ * minting it from a generated task contract.
  */
 
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
@@ -75,7 +78,7 @@ export async function runCommand(args: RunCommandArgs): Promise<number> {
   }
   else {
     if (!args.tasksFile) {
-      process.stderr.write('Usage: choirmaster run <tasks.json> | --resume <run-id>\n')
+      process.stderr.write('Usage: choirmaster run <plan.md|@query> | --resume <run-id>\n')
       return 1
     }
     const tasksPath = resolve(projectRoot, args.tasksFile)

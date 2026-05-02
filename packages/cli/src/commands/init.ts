@@ -84,10 +84,12 @@ function ensureGitignoreEntry(cwd: string): void {
     return
   }
   const current = readFileSync(path, 'utf8')
-  const missingLines = GITIGNORE_LINES.filter((line) => !hasEquivalentIgnoreRule(current, line))
+  const cleaned = removeObsoleteIgnoreRules(current)
+  if (cleaned !== current) writeFileSync(path, cleaned)
+  const missingLines = GITIGNORE_LINES.filter((line) => !hasEquivalentIgnoreRule(cleaned, line))
   if (missingLines.length === 0) return
-  const prefix = current.endsWith('\n') ? '\n' : '\n\n'
-  const hasHeader = current.includes('# ChoirMaster generated artifacts') || current.includes('# ChoirMaster per-run state')
+  const prefix = cleaned.endsWith('\n') ? '\n' : '\n\n'
+  const hasHeader = cleaned.includes('# ChoirMaster generated artifacts') || cleaned.includes('# ChoirMaster per-run state')
   const header = hasHeader ? '' : '# ChoirMaster generated artifacts (do not commit)\n'
   appendFileSync(path, `${prefix}${header}${missingLines.join('\n')}\n`)
 }
@@ -100,6 +102,13 @@ const GITIGNORE_LINES = [
 const GITIGNORE_ENTRY = `# ChoirMaster generated artifacts (do not commit)
 ${GITIGNORE_LINES.join('\n')}
 `
+
+function removeObsoleteIgnoreRules(content: string): string {
+  return content
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== '.choirmaster/plans/*.tasks.json')
+    .join('\n')
+}
 
 function hasEquivalentIgnoreRule(content: string, required: string): boolean {
   const rules = content
