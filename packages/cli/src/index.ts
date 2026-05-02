@@ -22,6 +22,7 @@ import { doctorCommand } from './commands/doctor.js'
 import { initCommand } from './commands/init.js'
 import { planCommand } from './commands/plan.js'
 import { runCommand } from './commands/run.js'
+import { formatMarkdownReferenceError, resolveMarkdownReference } from './markdown-ref.js'
 
 // ── Library re-exports ──────────────────────────────────────────────────────
 
@@ -52,13 +53,17 @@ Usage:
 Commands:
   doctor                         Check repo, manifest, agents, gates, and network
   init [--force]                Scaffold .choirmaster/ in the current repo
-  plan <plan.md>                Decompose a markdown plan into a tasks file
-  run <plan.md|tasks.json>      Plan-then-run a markdown plan, or run a tasks file
+  plan <plan.md|@query>         Decompose a markdown plan into a tasks file
+  run <plan.md|@query|tasks.json>
+                                Plan-then-run markdown, or run a tasks file
   run --resume <run-id>         Resume a paused or interrupted run
 
 Plan options:
   --output <path>               Write the generated tasks file here
   --force, -f                   Overwrite an existing tasks file at the output path
+
+Markdown shortcuts:
+  @query                        Match markdown files in the repo, e.g. cm run @example
 
 Doctor options:
   --cwd <path>                  Check a different project directory
@@ -184,7 +189,7 @@ export async function main(argv: string[]): Promise<number> {
     if (!resumeRunId && !inputFile) {
       process.stderr.write(
         'Usage:\n'
-        + '  choirmaster run <plan.md|tasks.json> [--continue-on-blocked] [--reuse-worktree] [--no-auto-merge]\n'
+        + '  choirmaster run <plan.md|@query|tasks.json> [--continue-on-blocked] [--reuse-worktree] [--no-auto-merge]\n'
         + '  choirmaster run --resume <run-id>\n',
       )
       return 64
@@ -199,10 +204,19 @@ export async function main(argv: string[]): Promise<number> {
     // refusing overwrites so reviewed/edited tasks files don't get
     // clobbered by a re-plan.
     let tasksFile = inputFile
-    if (inputFile && inputFile.toLowerCase().endsWith('.md')) {
-      const planExit = await planCommand({ planFile: inputFile, force: true })
+    if (tasksFile?.startsWith('@')) {
+      const planRef = resolveMarkdownReference(tasksFile, process.cwd())
+      if (!planRef.ok) {
+        process.stderr.write(formatMarkdownReferenceError(planRef))
+        return 64
+      }
+      tasksFile = planRef.path
+    }
+
+    if (tasksFile && tasksFile.toLowerCase().endsWith('.md')) {
+      const planExit = await planCommand({ planFile: tasksFile, force: true })
       if (planExit !== 0) return planExit
-      tasksFile = inputFile.replace(/\.md$/i, '.tasks.json')
+      tasksFile = tasksFile.replace(/\.md$/i, '.tasks.json')
     }
 
     return runCommand({

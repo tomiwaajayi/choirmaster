@@ -27,7 +27,7 @@ Solo developers, indie hackers, and small teams running scoped docs work, tests,
 
 ## What you get out of the box
 
-- **Markdown-first planning.** `choirmaster run <plan.md>` plans and runs in one flow. `choirmaster plan <plan.md>` stops after generating the task contract so you can review it first.
+- **Markdown-first planning.** `choirmaster run <plan.md>` plans and runs in one flow. `choirmaster plan <plan.md>` stops after generating the task contract so you can review it first. Use `@query` to match a markdown plan anywhere in the repo, e.g. `cm run @example`.
 - **Typed task contracts.** Each generated `*.tasks.json` declares branches, worktrees, allowed and forbidden paths, gates, dependencies, retry limits, and definitions of done. The runtime validates the whole file before any task starts.
 - **Hard scope enforcement.** Edits outside `allowed_paths` are caught after the agent's turn and the worktree is reverted. The check looks at committed + staged + unstaged + untracked, so an agent that ignores the prompt and commits anyway is still rolled back.
 - **Planner mutation guard.** Planning runs against the real repo, so ChoirMaster snapshots git-visible state plus configured forbidden paths before and after the planner turn. Rogue planner edits block the run.
@@ -46,7 +46,7 @@ Three layers, one published package:
 
 1. **Runtime** - state machine, retry caps, capacity pause/resume, worktree management, scope enforcement, gate runner, auto-merge with conflict abort. Project-agnostic.
 2. **Agent adapters** - pluggable `Agent` interface; the default Claude Code adapter ships in the box. Future agents (Codex, OpenCode, custom) implement the same interface.
-3. **Project config** - a typed `manifest.ts` per repo declares base branch, agent preferences, gates, sandbox setup, branch policy, and prompt files. Markdown plans live under `.choirmaster/plans/`; generated `*.tasks.json` files are the validated execution contracts.
+3. **Project config** - a typed `manifest.ts` per repo declares base branch, agent preferences, gates, sandbox setup, branch policy, and prompt files. Markdown plans can live anywhere in the repo; `.choirmaster/plans/` is the scaffolded convention. Generated `*.tasks.json` files are the validated execution contracts.
 
 The repo is a pnpm workspace with internal modules (`packages/core`, `packages/agent-claude`, `packages/cli`); `pnpm build` bundles them into the single published `choirmaster` package.
 
@@ -106,10 +106,13 @@ choirmaster doctor --skip-network
 
 # plan-then-run from a markdown plan: the planner agent compiles it
 # into a validated tasks file, the runtime executes it
+choirmaster run @example
+
+# or use the explicit path
 choirmaster run .choirmaster/plans/example.md
 
 # alternatively: just plan, review the generated tasks file, then run
-choirmaster plan .choirmaster/plans/example.md
+choirmaster plan @example
 choirmaster run .choirmaster/plans/example.tasks.json
 
 # resume a paused or interrupted run

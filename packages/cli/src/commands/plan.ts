@@ -1,5 +1,5 @@
 /**
- * `choirmaster plan <plan.md> [--output <tasks.json>]`
+ * `choirmaster plan <plan.md|@query> [--output <tasks.json>]`
  *
  * Decompose a markdown plan into a validated `*.tasks.json` next to it.
  * The runtime helper does the work; this command just wires args, manifest,
@@ -11,10 +11,11 @@ import { basename, dirname, extname, resolve } from 'node:path'
 
 import { runPlanner, type RunPlannerResult } from '@choirmaster/core'
 
+import { formatMarkdownReferenceError, resolveMarkdownReference } from '../markdown-ref.js'
 import { loadManifest } from '../manifest.js'
 
 export interface PlanCommandArgs {
-  /** Path to the markdown plan (relative or absolute). */
+  /** Path to the markdown plan (relative or absolute), or @query shorthand. */
   planFile: string
   /** Optional override for the generated tasks.json path. */
   outputFile?: string
@@ -36,13 +37,20 @@ export async function planCommand(args: PlanCommandArgs): Promise<number> {
     return 1
   }
 
-  const planPath = resolve(projectRoot, args.planFile)
+  const planRef = resolveMarkdownReference(args.planFile, projectRoot)
+  if (!planRef.ok) {
+    process.stderr.write(formatMarkdownReferenceError(planRef))
+    return 64
+  }
+
+  const planFile = planRef.path
+  const planPath = resolve(projectRoot, planFile)
   if (!existsSync(planPath)) {
     process.stderr.write(`plan file not found: ${planPath}\n`)
     return 1
   }
   if (extname(planPath).toLowerCase() !== '.md') {
-    process.stderr.write(`plan file must be a markdown (.md) file: ${args.planFile}\n`)
+    process.stderr.write(`plan file must be a markdown (.md) file: ${planFile}\n`)
     return 64
   }
 
@@ -56,7 +64,7 @@ export async function planCommand(args: PlanCommandArgs): Promise<number> {
   const logsDir = resolve(projectRoot, '.choirmaster/logs')
   mkdirSync(logsDir, { recursive: true })
 
-  process.stdout.write(`\nChoirMaster plan ${args.planFile}\n`)
+  process.stdout.write(`\nChoirMaster plan ${planFile}\n`)
   process.stdout.write(`  agent: ${config.agents.planner.name}\n`)
   process.stdout.write(`  output: ${shortPath(outputPath, projectRoot)}\n\n`)
 
