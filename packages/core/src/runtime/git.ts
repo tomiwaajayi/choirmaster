@@ -30,10 +30,10 @@ export function git(args: string[], cwd: string): GitResult {
  * tracking would be meaningless.
  */
 export function currentBranch(cwd: string): string | null {
-  const r = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)
+  const r = git(['symbolic-ref', '--quiet', '--short', 'HEAD'], cwd)
   if (r.status !== 0) return null
   const branch = r.stdout.trim()
-  return branch === 'HEAD' || branch === '' ? null : branch
+  return branch === '' ? null : branch
 }
 
 export function revParse(ref: string, cwd: string): string | null {

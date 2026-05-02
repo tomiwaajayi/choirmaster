@@ -169,17 +169,20 @@ export async function runTask(
   // run if the project root has drifted off it. This prevents tasks from
   // silently forking from a feature branch when the manifest says `main`.
   const baseRef = ctx.config.base
+  const rootBranch = currentBranch(ctx.projectRoot)
   const baseSha = revParse(baseRef, ctx.projectRoot)
   if (!baseSha) {
+    const currentHint = rootBranch
+      ? ` You're currently on '${rootBranch}'.`
+      : ' The project root appears to be detached or outside a branch.'
     return blockTask(
       ctx,
       state,
       task,
       logger,
-      `Cannot resolve manifest.base '${baseRef}' to a SHA. Check that the branch exists locally, or edit .choirmaster/manifest.ts to set base to the branch you want ChoirMaster to fork from and merge back into.`,
+      `Cannot resolve manifest.base '${baseRef}' to a SHA.${currentHint} Check that the branch exists locally, or edit .choirmaster/manifest.ts to set base to the branch you want ChoirMaster to fork from and merge back into.`,
     )
   }
-  const rootBranch = currentBranch(ctx.projectRoot)
   if (rootBranch !== baseRef) {
     return blockTask(
       ctx,

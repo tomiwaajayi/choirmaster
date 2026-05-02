@@ -55,7 +55,7 @@ Usage:
 Commands:
   doctor                         Check repo, manifest, agents, gates, and network
   draft [goal...]                Create an editable markdown plan skeleton
-  init [--force]                Scaffold .choirmaster/ in the current repo
+  init [--force | -f]           Scaffold .choirmaster/ in the current repo
   plan <plan.md|@query>         Decompose a markdown plan into a tasks file
   run <plan.md|@query|tasks.json>
                                 Plan-then-run markdown, or run a tasks file

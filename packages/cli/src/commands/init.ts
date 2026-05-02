@@ -8,9 +8,10 @@
  * unless `--force` is passed.
  */
 
-import { spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+
+import { currentBranch } from '@choirmaster/core'
 
 export interface InitCommandArgs {
   cwd?: string
@@ -32,7 +33,7 @@ export async function initCommand(args: InitCommandArgs = {}): Promise<number> {
   mkdirSync(join(choirDir, 'prompts'), { recursive: true })
   mkdirSync(join(choirDir, 'plans'), { recursive: true })
 
-  const baseBranch = currentGitBranch(cwd) ?? 'main'
+  const baseBranch = currentBranch(cwd) ?? 'main'
 
   writeFileSync(join(choirDir, 'manifest.ts'), manifestTemplate(baseBranch))
   writeFileSync(join(choirDir, 'prompts', 'planner.md'), PLANNER_TEMPLATE)
@@ -98,16 +99,6 @@ const GITIGNORE_LINES = [
 const GITIGNORE_ENTRY = `# ChoirMaster generated artifacts (do not commit)
 ${GITIGNORE_LINES.join('\n')}
 `
-
-function currentGitBranch(cwd: string): string | null {
-  const result = spawnSync('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], {
-    cwd,
-    encoding: 'utf8',
-  })
-  if (result.status !== 0) return null
-  const branch = result.stdout.trim()
-  return branch || null
-}
 
 function hasEquivalentIgnoreRule(content: string, required: string): boolean {
   const rules = content

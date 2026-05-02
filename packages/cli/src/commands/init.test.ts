@@ -39,6 +39,44 @@ describe('initCommand', () => {
     expect(manifest).toContain('base: "toms-playground"')
   })
 
+  it('preserves slashes in branch names', async () => {
+    const root = tempRoot()
+    sh('git init -b feature/foo', root)
+
+    const code = await initCommand({ cwd: root })
+    const manifest = readFileSync(join(root, '.choirmaster/manifest.ts'), 'utf8')
+
+    expect(code).toBe(0)
+    expect(manifest).toContain('base: "feature/foo"')
+  })
+
+  it('safely escapes branch names with embedded quotes', async () => {
+    const root = tempRoot()
+    sh('git init -q', root)
+    sh('git symbolic-ref HEAD refs/heads/\'tom"s-branch\'', root)
+
+    const code = await initCommand({ cwd: root })
+    const manifest = readFileSync(join(root, '.choirmaster/manifest.ts'), 'utf8')
+
+    expect(code).toBe(0)
+    expect(manifest).toContain('base: "tom\\"s-branch"')
+  })
+
+  it('falls back to main on detached HEAD', async () => {
+    const root = tempRoot()
+    sh('git init -b main', root)
+    sh('git config user.email test@example.com', root)
+    sh('git config user.name Test', root)
+    sh('git commit --allow-empty -m initial', root)
+    sh('git checkout --detach HEAD', root)
+
+    const code = await initCommand({ cwd: root })
+    const manifest = readFileSync(join(root, '.choirmaster/manifest.ts'), 'utf8')
+
+    expect(code).toBe(0)
+    expect(manifest).toContain('base: "main"')
+  })
+
   it('falls back to main outside a git repository', async () => {
     const root = tempRoot()
 
