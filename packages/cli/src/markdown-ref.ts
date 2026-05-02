@@ -1,9 +1,11 @@
 import { spawnSync } from 'node:child_process'
 import { basename } from 'node:path'
 
+import { findGitRoot } from './project-root.js'
+
 export type MarkdownReferenceResult =
   | { ok: true; path: string; matched: boolean }
-  | { ok: false; message: string; suggestions: string[] }
+  | { ok: false; message: string; suggestions: string[]; suggestionsLabel?: string }
 
 export function completeMarkdownReferences(input: string, cwd: string): string[] {
   if (!input.startsWith('@')) return []
@@ -11,7 +13,7 @@ export function completeMarkdownReferences(input: string, cwd: string): string[]
   const query = input.slice(1).trim().toLowerCase()
   const files = listMarkdownFiles(cwd)
   const matches = query ? findMarkdownMatches(files, query) : files
-  return matches.slice(0, 50).map((path) => `@${path}`)
+  return matches.slice(0, 50).map((path) => `@${path.replace(/[\n\r]/g, '')}`)
 }
 
 export function resolveMarkdownReference(input: string, cwd: string): MarkdownReferenceResult {
@@ -24,6 +26,7 @@ export function resolveMarkdownReference(input: string, cwd: string): MarkdownRe
       ok: false,
       message: 'Type some text after @ to match a markdown file.',
       suggestions: listMarkdownFiles(cwd).slice(0, 20),
+      suggestionsLabel: 'Markdown files in this repo:',
     }
   }
 
@@ -50,7 +53,7 @@ export function formatMarkdownReferenceError(result: Extract<MarkdownReferenceRe
   const lines = [result.message]
   if (result.suggestions.length > 0) {
     lines.push('')
-    lines.push('Matches:')
+    lines.push(result.suggestionsLabel ?? 'Matches:')
     for (const suggestion of result.suggestions) {
       lines.push(`  ${suggestion}`)
     }
@@ -59,8 +62,11 @@ export function formatMarkdownReferenceError(result: Extract<MarkdownReferenceRe
 }
 
 function listMarkdownFiles(cwd: string): string[] {
+  const repoRoot = findGitRoot(cwd)
+  if (!repoRoot) return []
+
   const result = spawnSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
-    cwd,
+    cwd: repoRoot,
     encoding: 'buffer',
   })
   if (result.status !== 0) return []
@@ -87,6 +93,9 @@ function scoreMatch(path: string, query: string): number | null {
   const lowerBase = basename(lowerPath)
   const baseWithoutExt = lowerBase.endsWith('.md') ? lowerBase.slice(0, -3) : lowerBase
 
+  // Lower score wins. Tiers: exact, base prefix, basename prefix,
+  // path prefix, base substring, path substring. Within a tier,
+  // shorter paths sort first via the length component.
   if (lowerPath === query || lowerBase === query || baseWithoutExt === query) return 0
   if (baseWithoutExt.startsWith(query)) return 10 + baseWithoutExt.length
   if (lowerBase.startsWith(query)) return 20 + lowerBase.length

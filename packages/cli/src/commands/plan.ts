@@ -13,6 +13,7 @@ import { runPlanner, type RunPlannerResult } from '@choirmaster/core'
 
 import { formatMarkdownReferenceError, resolveMarkdownReference } from '../markdown-ref.js'
 import { loadManifest } from '../manifest.js'
+import { resolveProjectRoot } from '../project-root.js'
 
 export interface PlanCommandArgs {
   /** Path to the markdown plan (relative or absolute), or @query shorthand. */
@@ -26,7 +27,7 @@ export interface PlanCommandArgs {
 }
 
 export async function planCommand(args: PlanCommandArgs): Promise<number> {
-  const projectRoot = resolve(args.cwd ?? process.cwd())
+  const projectRoot = resolveProjectRoot(args.cwd ?? process.cwd())
 
   let config
   try {

@@ -18,6 +18,7 @@ import type { RunState, Task } from '@choirmaster/core'
 import { loadState, runTask, saveState, validateTasksFile } from '@choirmaster/core'
 
 import { loadManifest } from '../manifest.js'
+import { resolveProjectRoot } from '../project-root.js'
 
 export interface RunCommandArgs {
   /** Path to tasks.json (relative or absolute). Required unless `resumeRunId`. */
@@ -35,7 +36,7 @@ export interface RunCommandArgs {
 }
 
 export async function runCommand(args: RunCommandArgs): Promise<number> {
-  const projectRoot = resolve(args.cwd ?? process.cwd())
+  const projectRoot = resolveProjectRoot(args.cwd ?? process.cwd())
 
   let config
   try {

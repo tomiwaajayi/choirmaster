@@ -42,6 +42,24 @@ describe('resolveMarkdownReference', () => {
     })
   })
 
+  it('matches repo markdown files when called from a subdirectory', () => {
+    const root = setupRepo({
+      files: {
+        '.choirmaster/plans/example.md': '# Example\n',
+        'packages/cli/README.md': '# CLI\n',
+      },
+      commit: true,
+    })
+    const subdir = join(root, 'packages/cli')
+
+    expect(resolveMarkdownReference('@example', subdir)).toEqual({
+      ok: true,
+      path: '.choirmaster/plans/example.md',
+      matched: true,
+    })
+    expect(completeMarkdownReferences('@example', subdir)).toEqual(['@.choirmaster/plans/example.md'])
+  })
+
   it('matches untracked markdown files too', () => {
     const root = setupRepo({
       files: {
@@ -109,6 +127,7 @@ describe('resolveMarkdownReference', () => {
     expect(result.ok).toBe(false)
     if (!result.ok) {
       expect(formatMarkdownReferenceError(result)).toContain('Type some text after @ to match a markdown file.')
+      expect(formatMarkdownReferenceError(result)).toContain('Markdown files in this repo:')
       expect(result.suggestions).toEqual(['.choirmaster/plans/example.md', 'README.md'])
     }
   })

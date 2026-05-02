@@ -56,6 +56,7 @@ describe('completionsCommand', () => {
     expect(code).toBe(0)
     expect(stdout).toContain('extern "choirmaster plan"')
     expect(stdout).toContain('__complete markdown $token')
+    expect(stdout).toContain('^$bin __complete markdown $token')
   })
 
   it('accepts nu as a Nushell alias', () => {

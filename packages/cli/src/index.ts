@@ -58,7 +58,8 @@ Commands:
   run <plan.md|@query|tasks.json>
                                 Plan-then-run markdown, or run a tasks file
   run --resume <run-id>         Resume a paused or interrupted run
-  completions <shell>           Print shell completion script
+  completions <zsh|bash|fish|powershell|nushell>
+                                Print shell completion script
 
 Plan options:
   --output <path>               Write the generated tasks file here
@@ -66,7 +67,9 @@ Plan options:
 
 Markdown shortcuts:
   @query                        Match markdown files in the repo, e.g. cm run @example
-  completions                   zsh, bash, fish, powershell, nushell
+
+Completion protocol:
+  __complete markdown <@query>  Print markdown suggestions for shell adapters
 
 Doctor options:
   --cwd <path>                  Check a different project directory
@@ -199,7 +202,7 @@ export async function main(argv: string[]): Promise<number> {
       consumed.add(resumeIdx + 1)
     }
 
-    const inputFile = argList.find((a, i) => !consumed.has(i) && !a.startsWith('--'))
+    const inputFile = argList.find((a, i) => !consumed.has(i) && !a.startsWith('-'))
     if (resumeRunId && inputFile) {
       process.stderr.write(
         `Pass either a plan/tasks file or --resume, not both. (got both '${inputFile}' and --resume ${resumeRunId})\n`,

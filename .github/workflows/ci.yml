@@ -32,6 +32,23 @@ jobs:
 
       - run: pnpm build
 
+      - name: Syntax-check shell completions
+        run: |
+          set -euo pipefail
+
+          bash_file="$(mktemp)"
+          zsh_file="$(mktemp)"
+
+          node packages/cli/dist/cli.js completions bash > "$bash_file"
+          bash -n "$bash_file"
+
+          node packages/cli/dist/cli.js completions zsh > "$zsh_file"
+          if command -v zsh >/dev/null 2>&1; then
+            zsh -n "$zsh_file"
+          else
+            echo "zsh is not installed; skipping zsh syntax check"
+          fi
+
       - run: pnpm test
 
       - name: Smoke test packed package

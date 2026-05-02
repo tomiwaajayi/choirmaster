@@ -198,9 +198,10 @@ def "nu-complete choirmaster shells" [] {
 
 def "nu-complete choirmaster markdown" [context: string] {
   let words = ($context | split row ' ')
+  let bin = ($words | first)
   let token = ($words | last)
   if ($token | str starts-with '@') {
-    ^choirmaster __complete markdown $token | lines
+    ^$bin __complete markdown $token | lines
   } else {
     []
   }

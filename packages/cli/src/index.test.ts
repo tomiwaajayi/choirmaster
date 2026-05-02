@@ -28,6 +28,21 @@ describe('CLI completion dispatch', () => {
     expect(stdout).toBe('@.choirmaster/plans/example.md\n')
   })
 
+  it('prints markdown reference candidates from repo subdirectories', async () => {
+    const root = setupRepo({
+      '.choirmaster/plans/example.md': '# Example\n',
+      'packages/cli/README.md': '# CLI\n',
+    })
+
+    const { code, stdout } = await captureMain(
+      join(root, 'packages/cli'),
+      ['node', 'cm', '__complete', 'markdown', '@example'],
+    )
+
+    expect(code).toBe(0)
+    expect(stdout).toBe('@.choirmaster/plans/example.md\n')
+  })
+
   it('prints completion scripts from the public command', async () => {
     const root = setupRepo()
 

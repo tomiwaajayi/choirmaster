@@ -1,12 +1,13 @@
 import { spawnSync } from 'node:child_process'
 import { lookup } from 'node:dns/promises'
 import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 
 import { currentBranch, git, type AgentRoles, type ProjectConfig, type ProjectPrompts } from '@choirmaster/core'
 import type { Agent } from '@choirmaster/core'
 
 import { loadManifest } from '../manifest.js'
+import { resolveProjectRoot } from '../project-root.js'
 
 type CheckStatus = 'ok' | 'warn' | 'fail'
 
@@ -39,7 +40,7 @@ export interface DoctorCommandArgs {
 }
 
 export async function doctorCommand(args: DoctorCommandArgs = {}): Promise<number> {
-  const projectRoot = resolve(args.cwd ?? process.cwd())
+  const projectRoot = resolveProjectRoot(args.cwd ?? process.cwd())
   const commandRunner = args.commandRunner ?? runCommand
   const lookupHost = args.lookupHost ?? ((host: string) => lookup(host))
   const checks: DoctorCheck[] = []

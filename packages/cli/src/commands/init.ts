@@ -66,7 +66,7 @@ export async function initCommand(args: InitCommandArgs = {}): Promise<number> {
   process.stdout.write(`       choirmaster run @example                              # match the example markdown plan\n`)
   process.stdout.write(`       choirmaster run .choirmaster/plans/example.md          # same thing, explicit path\n`)
   process.stdout.write(`       choirmaster run .choirmaster/plans/example.tasks.json  # run a hand-written tasks file\n`)
-  process.stdout.write(`  Optional: install live shell completions for @plan suggestions:\n`)
+  process.stdout.write(`  6. (Optional) install live shell completions for @-references:\n`)
   process.stdout.write(`       choirmaster completions <zsh|bash|fish|powershell|nushell>\n`)
   process.stdout.write(`\n`)
   return 0
