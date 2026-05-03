@@ -23,7 +23,8 @@ The markdown plan is the human authoring surface. It can live anywhere in the re
 - Single-package install: global CLI (`npm install -g choirmaster`) or project dev dependency (`npm install -D choirmaster` with `npx choirmaster`).
 - `choirmaster` and `cm` both work as first-class command names.
 - Markdown-first: `choirmaster run <plan.md>` is the primary path; task contracts are generated artifacts for inspection and advanced/debug workflows.
-- `choirmaster draft "goal"` and `choirmaster draft --from notes.md` create editable markdown plan skeletons before any model turn.
+- `choirmaster draft --interactive "goal"` asks concise terminal questions, then writes a reviewable markdown plan before any model turn.
+- `choirmaster draft "goal"` and `choirmaster draft --from notes.md` still create quick editable markdown plan skeletons.
 - `choirmaster doctor` checks local setup before the user spends tokens on an agent run.
 - Repo-wide markdown shorthand: `cm run @example` can resolve a markdown plan without requiring the user to remember the full path.
 - Live markdown completions for common shells: zsh, bash, fish, PowerShell, and Nushell all call the same `cm __complete markdown @query` protocol.
@@ -33,7 +34,7 @@ The markdown plan is the human authoring surface. It can live anywhere in the re
 
 ### Near-Term 0.3.x Direction
 
-- Interactive plan interviews: bounded question batches with recommended defaults that turn rough intent into a reviewable markdown plan without asking endless questions.
+- Agent-generated follow-up questions on top of `draft --interactive`, while keeping the current no-token interview path.
 - Safer plan-level branch behavior decided and documented: most likely a flow like `current branch -> plan branch -> task branches -> plan branch` so a random first run never mutates `main` by surprise.
 
 ## Current Reality
@@ -113,7 +114,7 @@ These are no longer roadmap items, but they shape the remaining work:
 - `cm` alias ships alongside `choirmaster`.
 - `*.tasks.json` validation runs before any task starts, with cycle detection and unsafe-path rejection.
 - Markdown planner: `choirmaster plan <plan.md>` and `choirmaster run <plan.md>` decompose a markdown plan into a validated tasks file. Mutation guard refuses any planner edit outside `.choirmaster/plan-output.json`, including changes to gitignored files matching `forbiddenPaths`.
-- Markdown drafting: `choirmaster draft "goal"` and `choirmaster draft --from notes.md` generate editable markdown plan skeletons with concise clarifying questions and recommended defaults.
+- Markdown drafting: `choirmaster draft --interactive "goal"` asks concise terminal questions and writes a reviewable markdown plan; `choirmaster draft "goal"` and `choirmaster draft --from notes.md` remain fast editable scaffolds.
 - Markdown shorthand and completions: `@query` resolves markdown plans anywhere in the repo, and generated shell completion scripts provide live `@query` suggestions for zsh, bash, fish, PowerShell, and Nushell.
 - Init branch defaults: `choirmaster init` initializes `manifest.base` from the current branch and escapes unusual branch names safely; detached or non-git directories fall back to `main`.
 - Sandbox prepare hook: `worktreeSandbox({ prepare: { command: 'pnpm install --frozen-lockfile' } })` runs once per fresh worktree before any agent turn. Prepare failure blocks the task immediately instead of consuming implementer attempts.
@@ -146,6 +147,7 @@ Core commands:
 
 - `choirmaster init`
 - `choirmaster doctor`
+- `choirmaster draft --interactive "goal"`
 - `choirmaster draft "goal"` and `choirmaster draft --from notes.md`
 - `choirmaster run <plan.md>`
 - `choirmaster plan <plan.md>`
@@ -155,7 +157,7 @@ Core commands:
 
 Needed polish:
 
-- Agent-assisted plan interviews: bounded question batches with recommended defaults, especially for migrations and broad goals.
+- Agent-generated follow-up questions layered onto the shipped interactive draft flow, especially for migrations and broad goals.
 - Clear plan authoring guidance, with examples of good and bad plans.
 - Clear task schema documentation for users who want to inspect or edit generated contracts.
 - Examples for TypeScript, Python, Rails, and generic shell-gated projects.

@@ -32,6 +32,92 @@ describe('draftCommand', () => {
     expect(readFileSync(path, 'utf8')).toContain('Recommended default: use phased tasks')
   })
 
+  it('creates an interactive markdown plan from concise answers', async () => {
+    const root = tempRoot()
+
+    const { code, stdout } = await captureDraft({
+      cwd: root,
+      goal: 'add onboarding smoke check',
+      interactive: true,
+      ask: scriptedAsk([
+        '',
+        'docs and onboarding scripts',
+        'do not touch auth or billing',
+        'one small task',
+        'pnpm test and manual smoke',
+        'failed tests block',
+        'Prefer a tiny first slice.',
+        '',
+      ]),
+    })
+
+    const content = readFileSync(join(root, '.choirmaster/plans/add-onboarding-smoke-check.md'), 'utf8')
+    expect(code).toBe(0)
+    expect(stdout).toContain('Interactive plan interview')
+    expect(content).toContain('This plan was drafted through ChoirMaster')
+    expect(content).toContain('docs and onboarding scripts')
+    expect(content).toContain('do not touch auth or billing')
+    expect(content).toContain('pnpm test and manual smoke')
+    expect(content).toContain('Prefer a tiny first slice.')
+    expect(content).not.toContain('## Clarifying Questions')
+    expect(content).not.toContain('Question:')
+  })
+
+  it('adds migration-specific interview sections for broad migrations', async () => {
+    const root = tempRoot()
+
+    const { code } = await captureDraft({
+      cwd: root,
+      goal: 'migrate scss to tailwind',
+      interactive: true,
+      ask: scriptedAsk(['', '', '', '', '', '', '', '', '']),
+    })
+
+    const content = readFileSync(join(root, '.choirmaster/plans/migrate-scss-to-tailwind.md'), 'utf8')
+    expect(code).toBe(0)
+    expect(content).toContain('## Migration Notes')
+    expect(content).toContain('Migrate in slices')
+    expect(content).toContain('Define a focused parity check')
+  })
+
+  it('requires a goal in interactive mode when no answer is provided', async () => {
+    const root = tempRoot()
+
+    const { code, stderr } = await captureDraft({
+      cwd: root,
+      interactive: true,
+      ask: scriptedAsk(['']),
+    })
+
+    expect(code).toBe(64)
+    expect(stderr).toContain('interactive draft needs a goal')
+    expect(existsSync(join(root, '.choirmaster/plans/draft-engineering-change.md'))).toBe(false)
+  })
+
+  it('uses the first interactive answer as the title when no goal was passed', async () => {
+    const root = tempRoot()
+
+    const { code, stdout } = await captureDraft({
+      cwd: root,
+      interactive: true,
+      ask: scriptedAsk([
+        'add smoke marker',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+      ]),
+    })
+
+    expect(code).toBe(0)
+    expect(stdout).toContain('Draft plan created: .choirmaster/plans/add-smoke-marker.md')
+    expect(stdout).not.toContain('Tip: pass a goal')
+    expect(readFileSync(join(root, '.choirmaster/plans/add-smoke-marker.md'), 'utf8'))
+      .toContain('## Goal\n\nadd smoke marker')
+  })
+
   it('creates a draft from source notes', async () => {
     const root = tempRoot()
     writeFileSync(join(root, 'notes.md'), '# Improve onboarding\n\nNeed better docs and checks.\n')
@@ -187,4 +273,9 @@ function tempRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'choir-draft-'))
   roots.push(root)
   return root
+}
+
+function scriptedAsk(answers: string[]): (prompt: string) => Promise<string> {
+  const queue = [...answers]
+  return async () => queue.shift() ?? ''
 }

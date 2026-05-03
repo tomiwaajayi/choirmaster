@@ -8,9 +8,9 @@ describe('completionsCommand', () => {
 
     expect(code).toBe(0)
     expect(stdout).toContain('compdef _choirmaster choirmaster')
-    expect(stdout).toContain('draft:create an editable markdown plan skeleton')
+    expect(stdout).toContain('draft:create an editable markdown plan')
     expect(stdout).toContain('__complete markdown "$cur"')
-    expect(stdout).toContain('compadd -- --force -f')
+    expect(stdout).toContain('compadd -- --from --output --interactive --ask --force -f')
     expect(stdout).toContain('powershell pwsh nushell nu')
   })
 
@@ -21,7 +21,7 @@ describe('completionsCommand', () => {
     expect(stdout).toContain('doctor draft init plan run completions')
     expect(stdout).toContain('complete -F _choirmaster_completion cm')
     expect(stdout).toContain('__complete markdown "$cur"')
-    expect(stdout).toContain('compgen -W "--force -f"')
+    expect(stdout).toContain('compgen -W "--from --output --interactive --ask --force -f"')
   })
 
   it('prints fish completions backed by the internal completion command', () => {
@@ -31,6 +31,7 @@ describe('completionsCommand', () => {
     expect(stdout).toContain('function __choirmaster_complete_markdown')
     expect(stdout).toContain('doctor draft init plan run completions')
     expect(stdout).toContain('__complete markdown $token')
+    expect(stdout).toContain('__fish_seen_subcommand_from draft" -l interactive')
     expect(stdout).toContain('__fish_seen_subcommand_from init" -s f')
   })
 
@@ -41,7 +42,7 @@ describe('completionsCommand', () => {
     expect(stdout).toContain('Register-ArgumentCompleter')
     expect(stdout).toContain("'doctor', 'draft', 'init', 'plan', 'run', 'completions'")
     expect(stdout).toContain('__complete markdown $wordToComplete')
-    expect(stdout).toContain("'--force', '-f'")
+    expect(stdout).toContain("'--from', '--output', '--interactive', '--ask', '--force', '-f'")
   })
 
   it('accepts pwsh as a PowerShell alias', () => {
@@ -64,6 +65,7 @@ describe('completionsCommand', () => {
     expect(code).toBe(0)
     expect(stdout).toContain('extern "choirmaster draft"')
     expect(stdout).toContain('extern "choirmaster plan"')
+    expect(stdout).toContain('--interactive')
     expect(stdout).toContain('__complete markdown $token')
     expect(stdout).toContain('^$bin __complete markdown $token')
   })

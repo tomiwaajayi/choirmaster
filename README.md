@@ -136,14 +136,17 @@ The examples below use `choirmaster`. Use `cm` for the shorter alias, or prefix 
 choirmaster init
 
 # edit .choirmaster/manifest.ts (base defaults to current branch; set gates/retry caps)
-# draft what you want done in markdown
+# draft what you want done in markdown, with concise questions
 # (a worked example lives at .choirmaster/plans/example.md)
+choirmaster draft --interactive "add onboarding notes for new contributors"
+
+# or create a quick editable scaffold without questions
 choirmaster draft "add onboarding notes for new contributors"
 
 # or draft from existing notes / an issue body
 choirmaster draft --from notes.md
 
-# draft asks you to answer or delete clarifying questions before running
+# non-interactive drafts ask you to answer or delete clarifying questions before running
 # use --output <path.md> when you want the plan somewhere else
 
 # check your setup before invoking an agent
@@ -174,7 +177,7 @@ choirmaster run .choirmaster/plans/example.md --no-auto-merge
 
 ### Where it's going
 
-- Agent-assisted plan interviews: bounded question batches with recommended defaults for large or ambiguous goals
+- Agent-generated follow-up questions on top of the deterministic interactive draft flow
 - Plan reviewer loop: a second agent reviews the generated task contract before execution
 - Safer plan-level branch flow, likely `current branch -> plan branch -> task branches -> plan branch`
 - Daily workflow commands: `status`, `logs`, `inspect`, `retry`, and `reset`

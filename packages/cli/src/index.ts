@@ -55,7 +55,7 @@ Usage:
 
 Commands:
   doctor                         Check repo, manifest, agents, gates, and network
-  draft [goal...]                Create an editable markdown plan skeleton
+  draft [goal...]                Create an editable markdown plan
   init [--force | -f]           Scaffold .choirmaster/ in the current repo
   plan <plan.md|@query>         Decompose a markdown plan into a task contract
   run <plan.md|@query>          Plan-then-run markdown
@@ -70,6 +70,7 @@ Plan options:
 Draft options:
   --from <path>                 Create a draft from notes or an issue body
   --output <path>               Write the markdown plan here (any writable path)
+  --interactive, --ask          Ask concise questions before writing the plan
   --force, -f                   Overwrite an existing markdown plan
 
 Markdown shortcuts:
@@ -164,6 +165,7 @@ export async function main(argv: string[]): Promise<number> {
       goal,
       fromFile: fromFile.value,
       outputFile: outputFile.value,
+      interactive: argList.includes('--interactive') || argList.includes('--ask'),
       force: argList.includes('--force') || argList.includes('-f'),
     })
   }

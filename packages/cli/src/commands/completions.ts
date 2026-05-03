@@ -37,7 +37,7 @@ _choirmaster() {
   local -a commands
   commands=(
     'doctor:check repo, manifest, agents, gates, and network'
-    'draft:create an editable markdown plan skeleton'
+    'draft:create an editable markdown plan'
     'init:scaffold .choirmaster in the current repo'
     'plan:decompose a markdown plan into a task contract'
     'run:run a markdown plan'
@@ -64,7 +64,7 @@ _choirmaster() {
       compadd zsh bash fish powershell pwsh nushell nu
       ;;
     draft)
-      compadd -- --from --output --force -f
+      compadd -- --from --output --interactive --ask --force -f
       ;;
     doctor)
       compadd -- --cwd --skip-network --offline
@@ -100,7 +100,7 @@ const BASH_COMPLETION = `_choirmaster_completion() {
       COMPREPLY=( $(compgen -W "zsh bash fish powershell pwsh nushell nu" -- "$cur") )
       ;;
     draft)
-      COMPREPLY=( $(compgen -W "--from --output --force -f" -- "$cur") )
+      COMPREPLY=( $(compgen -W "--from --output --interactive --ask --force -f" -- "$cur") )
       ;;
     doctor)
       COMPREPLY=( $(compgen -W "--cwd --skip-network --offline" -- "$cur") )
@@ -134,10 +134,14 @@ complete -c cm -n "__fish_seen_subcommand_from completions" -a "zsh bash fish po
 
 complete -c choirmaster -n "__fish_seen_subcommand_from draft" -l from -r
 complete -c choirmaster -n "__fish_seen_subcommand_from draft" -l output -r
+complete -c choirmaster -n "__fish_seen_subcommand_from draft" -l interactive
+complete -c choirmaster -n "__fish_seen_subcommand_from draft" -l ask
 complete -c choirmaster -n "__fish_seen_subcommand_from draft" -l force
 complete -c choirmaster -n "__fish_seen_subcommand_from draft" -s f
 complete -c cm -n "__fish_seen_subcommand_from draft" -l from -r
 complete -c cm -n "__fish_seen_subcommand_from draft" -l output -r
+complete -c cm -n "__fish_seen_subcommand_from draft" -l interactive
+complete -c cm -n "__fish_seen_subcommand_from draft" -l ask
 complete -c cm -n "__fish_seen_subcommand_from draft" -l force
 complete -c cm -n "__fish_seen_subcommand_from draft" -s f
 
@@ -193,7 +197,7 @@ const POWERSHELL_COMPLETION = `Register-ArgumentCompleter -Native -CommandName c
         ForEach-Object { New-ChoirCompletion $_ }
     }
     'draft' {
-      '--from', '--output', '--force', '-f' |
+      '--from', '--output', '--interactive', '--ask', '--force', '-f' |
         Where-Object { $_ -like "$wordToComplete*" } |
         ForEach-Object { New-ChoirCompletion $_ 'ParameterName' }
     }
@@ -248,6 +252,8 @@ extern "choirmaster draft" [
   goal?: string
   --from: string
   --output: string
+  --interactive
+  --ask
   --force(-f)
 ]
 
@@ -255,6 +261,8 @@ extern "cm draft" [
   goal?: string
   --from: string
   --output: string
+  --interactive
+  --ask
   --force(-f)
 ]
 
