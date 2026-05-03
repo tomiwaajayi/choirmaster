@@ -201,6 +201,20 @@ describe('resolveMarkdownReference', () => {
     })
   })
 
+  it('ignores internal prompt markdown files', () => {
+    const root = setupRepo({
+      files: {
+        '.choirmaster/prompts/planner.md': '# Planner prompt\n',
+      },
+      commit: true,
+    })
+
+    expect(resolveMarkdownReference('@planner', root)).toMatchObject({
+      ok: false,
+      suggestions: [],
+    })
+  })
+
   it('returns completion candidates with @ prefixes', () => {
     const root = setupRepo({
       files: {

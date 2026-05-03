@@ -25,6 +25,7 @@ import { initCommand } from './commands/init.js'
 import { defaultTasksOutputPath, planCommand } from './commands/plan.js'
 import { runCommand } from './commands/run.js'
 import { completeMarkdownReferences, formatMarkdownReferenceError, resolveMarkdownReference } from './markdown-ref.js'
+import { pickMarkdownFile } from './markdown-picker.js'
 import { resolveProjectRoot } from './project-root.js'
 
 // ── Library re-exports ──────────────────────────────────────────────────────
@@ -57,8 +58,8 @@ Commands:
   doctor                         Check repo, manifest, agents, gates, and network
   draft [goal...]                Create an editable markdown plan
   init [--force | -f]           Scaffold .choirmaster/ in the current repo
-  plan <plan.md|@query>         Decompose a markdown plan into a task contract
-  run <plan.md|@query>          Plan-then-run markdown
+  plan [plan.md|@query]         Decompose a markdown plan into a task contract
+  run [plan.md|@query]          Plan-then-run markdown
   run --resume <run-id>         Resume a paused or interrupted run
   completions <zsh|bash|fish|powershell|nushell>
                                 Print shell completion script
@@ -75,6 +76,7 @@ Draft options:
 
 Markdown shortcuts:
   @query                        Exact markdown reference; completions provide fuzzy suggestions
+  no input                      Open ChoirMaster's interactive markdown picker
 
 Completion protocol:
   __complete markdown <@query>  Print markdown suggestions for shell adapters
@@ -200,13 +202,11 @@ export async function main(argv: string[]): Promise<number> {
     // double-dash long flags. Otherwise `choirmaster plan -f plan.md`
     // would pick `-f` as the positional plan file and fail before the
     // real path is read.
-    const planFile = findPositionalArg(argList, consumed)
-    if (!planFile) {
-      process.stderr.write('Usage: choirmaster plan <plan.md> [--output <tasks.json>] [--force]\n')
-      return 64
-    }
+    const selected = await resolveMarkdownInput(findPositionalArg(argList, consumed), 'plan')
+    if (!selected.ok) return selected.code
+
     return planCommand({
-      planFile,
+      planFile: selected.path,
       outputFile: outputFile.value,
       force: args.includes('--force') || args.includes('-f'),
     })
@@ -231,13 +231,22 @@ export async function main(argv: string[]): Promise<number> {
       )
       return 64
     }
+    if (resumeRunId.value) {
+      return runCommand({
+        resumeRunId: resumeRunId.value,
+        continueOnBlocked: args.includes('--continue-on-blocked'),
+        reuseWorktree: args.includes('--reuse-worktree'),
+        skipAutoMerge: args.includes('--no-auto-merge'),
+      })
+    }
     if (!resumeRunId.value && !inputFile) {
-      process.stderr.write(
-        'Usage:\n'
-        + '  choirmaster run <plan.md|@query> [--continue-on-blocked] [--reuse-worktree] [--no-auto-merge]\n'
-        + '  choirmaster run --resume <run-id>\n',
-      )
-      return 64
+      const selected = await resolveMarkdownInput(undefined, 'run')
+      if (!selected.ok) return selected.code
+      return runMarkdownInput(selected, {
+        continueOnBlocked: args.includes('--continue-on-blocked'),
+        reuseWorktree: args.includes('--reuse-worktree'),
+        skipAutoMerge: args.includes('--no-auto-merge'),
+      })
     }
 
     // Plan-then-run: when the input is a markdown file, run the planner
@@ -249,30 +258,10 @@ export async function main(argv: string[]): Promise<number> {
     // of this entry point; standalone `choirmaster plan` defaults to
     // refusing overwrites so reviewed/edited tasks files don't get
     // clobbered by a re-plan.
-    let tasksFile = inputFile
-    const runReference = inputFile
-    if (tasksFile?.startsWith('@')) {
-      const planRef = resolveMarkdownReference(tasksFile, process.cwd())
-      if (!planRef.ok) {
-        process.stderr.write(formatMarkdownReferenceError(planRef))
-        return 64
-      }
-      tasksFile = planRef.path
-    }
+    const selected = await resolveMarkdownInput(inputFile, 'run')
+    if (!selected.ok) return selected.code
 
-    if (tasksFile && tasksFile.toLowerCase().endsWith('.md')) {
-      const planExit = await planCommand({ planFile: runReference ?? tasksFile, force: true })
-      if (planExit !== 0) return planExit
-      const projectRoot = resolveProjectRoot(process.cwd())
-      tasksFile = relative(
-        projectRoot,
-        defaultTasksOutputPath(resolve(projectRoot, tasksFile), projectRoot),
-      )
-    }
-
-    return runCommand({
-      tasksFile,
-      resumeRunId: resumeRunId.value,
+    return runMarkdownInput(selected, {
       continueOnBlocked: args.includes('--continue-on-blocked'),
       reuseWorktree: args.includes('--reuse-worktree'),
       skipAutoMerge: args.includes('--no-auto-merge'),
@@ -288,6 +277,77 @@ export async function main(argv: string[]): Promise<number> {
   process.stderr.write(`choirmaster: unknown command '${command ?? ''}'\n\n`)
   process.stderr.write(HELP)
   return 64
+}
+
+type MarkdownInputResult =
+  | { ok: true; path: string; runReference?: string }
+  | { ok: false; code: number }
+
+async function resolveMarkdownInput(input: string | undefined, action: 'plan' | 'run'): Promise<MarkdownInputResult> {
+  if (!input) {
+    const picked = await pickMarkdownFile({
+      cwd: process.cwd(),
+      title: action === 'run' ? 'Select a markdown file to run' : 'Select a markdown file to plan',
+    })
+    if (!picked.ok) {
+      process.stderr.write(`${picked.message}\n`)
+      return { ok: false, code: picked.code }
+    }
+    return { ok: true, path: picked.path }
+  }
+
+  if (!input.startsWith('@')) {
+    return { ok: true, path: input }
+  }
+
+  const planRef = resolveMarkdownReference(input, process.cwd())
+  if (planRef.ok) {
+    return { ok: true, path: planRef.path, runReference: input }
+  }
+
+  if (process.stdin.isTTY && process.stdout.isTTY) {
+    const picked = await pickMarkdownFile({
+      cwd: process.cwd(),
+      initialQuery: input.slice(1),
+      title: action === 'run' ? 'Select a markdown file to run' : 'Select a markdown file to plan',
+    })
+    if (!picked.ok) {
+      process.stderr.write(`${picked.message}\n`)
+      return { ok: false, code: picked.code }
+    }
+    return { ok: true, path: picked.path }
+  }
+
+  process.stderr.write(formatMarkdownReferenceError(planRef))
+  return { ok: false, code: 64 }
+}
+
+async function runMarkdownInput(
+  selected: Extract<MarkdownInputResult, { ok: true }>,
+  options: {
+    continueOnBlocked: boolean
+    reuseWorktree: boolean
+    skipAutoMerge: boolean
+  },
+): Promise<number> {
+  let tasksFile = selected.path
+
+  if (tasksFile.toLowerCase().endsWith('.md')) {
+    const planExit = await planCommand({ planFile: selected.runReference ?? tasksFile, force: true })
+    if (planExit !== 0) return planExit
+    const projectRoot = resolveProjectRoot(process.cwd())
+    tasksFile = relative(
+      projectRoot,
+      defaultTasksOutputPath(resolve(projectRoot, tasksFile), projectRoot),
+    )
+  }
+
+  return runCommand({
+    tasksFile,
+    continueOnBlocked: options.continueOnBlocked,
+    reuseWorktree: options.reuseWorktree,
+    skipAutoMerge: options.skipAutoMerge,
+  })
 }
 
 type FlagValue =

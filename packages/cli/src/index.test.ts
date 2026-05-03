@@ -103,6 +103,25 @@ describe('CLI completion dispatch', () => {
     expect(stdout).toContain('1 task(s) loaded from .choirmaster/tasks/example.tasks.json')
     expect(stdout).toContain('sandbox.setup failed: planned-contract-loaded')
   })
+
+  it('does not guess a fuzzy @ reference in non-interactive execution', async () => {
+    const root = setupPlanThenRunRepo()
+
+    const { code, stderr } = await captureMain(root, ['node', 'cm', 'run', '@exam'])
+
+    expect(code).toBe(64)
+    expect(stderr).toContain('@exam is not an exact markdown reference')
+    expect(stderr).toContain('.choirmaster/plans/example.md')
+  })
+
+  it('offers the built-in picker when no plan input is passed in non-interactive execution', async () => {
+    const root = setupPlanThenRunRepo()
+
+    const { code, stderr } = await captureMain(root, ['node', 'cm', 'plan'])
+
+    expect(code).toBe(64)
+    expect(stderr).toContain('Pass <plan.md>, pass an exact @reference, or run this command in an interactive terminal')
+  })
 })
 
 async function captureMain(

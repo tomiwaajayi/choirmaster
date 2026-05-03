@@ -11,9 +11,15 @@ export function completeMarkdownReferences(input: string, cwd: string): string[]
   if (!input.startsWith('@')) return []
 
   const query = input.slice(1).trim().toLowerCase()
+  const matches = searchMarkdownFiles(query, cwd, 50)
+  return matches.slice(0, 50).map((path) => `@${path.replace(/[\n\r]/g, '')}`)
+}
+
+export function searchMarkdownFiles(queryInput: string, cwd: string, limit = 50): string[] {
+  const query = queryInput.replace(/^@/, '').trim().toLowerCase()
   const files = listMarkdownFiles(cwd)
   const matches = query ? findMarkdownMatches(files, query) : files
-  return matches.slice(0, 50).map((path) => `@${path.replace(/[\n\r]/g, '')}`)
+  return matches.slice(0, limit)
 }
 
 export function resolveMarkdownReference(input: string, cwd: string): MarkdownReferenceResult {
@@ -71,7 +77,7 @@ export function formatMarkdownReferenceError(result: Extract<MarkdownReferenceRe
   return `${lines.join('\n')}\n`
 }
 
-function listMarkdownFiles(cwd: string): string[] {
+export function listMarkdownFiles(cwd: string): string[] {
   const repoRoot = findGitRoot(cwd)
   if (!repoRoot) return []
 
@@ -87,6 +93,7 @@ function listMarkdownFiles(cwd: string): string[] {
     .filter(Boolean)
     .filter((path) => path.toLowerCase().endsWith('.md'))
     .filter((path) => !path.startsWith('.choirmaster/runs/'))
+    .filter((path) => !path.startsWith('.choirmaster/prompts/'))
     .sort((a, b) => a.localeCompare(b))
 }
 
