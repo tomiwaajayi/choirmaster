@@ -42,6 +42,26 @@ describe('resolveMarkdownReference', () => {
     })
   })
 
+  it('matches an explicit markdown path with or without the extension', () => {
+    const root = setupRepo({
+      files: {
+        'docs/dashboard-state-machine.md': '# Dashboard\n',
+      },
+      commit: true,
+    })
+
+    expect(resolveMarkdownReference('@docs/dashboard-state-machine.md', root)).toEqual({
+      ok: true,
+      path: 'docs/dashboard-state-machine.md',
+      matched: true,
+    })
+    expect(resolveMarkdownReference('@docs/dashboard-state-machine', root)).toEqual({
+      ok: true,
+      path: 'docs/dashboard-state-machine.md',
+      matched: true,
+    })
+  })
+
   it('matches repo markdown files when called from a subdirectory', () => {
     const root = setupRepo({
       files: {
@@ -90,7 +110,7 @@ describe('resolveMarkdownReference', () => {
     })
   })
 
-  it('returns suggestions when the query is ambiguous', () => {
+  it('returns suggestions when an exact basename is ambiguous', () => {
     const root = setupRepo({
       files: {
         '.choirmaster/plans/auth.md': '# Auth\n',
@@ -104,13 +124,30 @@ describe('resolveMarkdownReference', () => {
 
     expect(result.ok).toBe(false)
     if (!result.ok) {
-      expect(result.message).toBe('Multiple markdown files match @auth. Keep typing more of the path.')
+      expect(result.message).toBe('Multiple markdown files exactly match @auth. Choose one with shell completion, or pass the explicit markdown path.')
       expect(result.suggestions).toEqual([
         '.choirmaster/plans/auth.md',
         'docs/auth.md',
-        'notes/auth-rollout.md',
       ])
     }
+  })
+
+  it('does not execute-time resolve a fuzzy prefix to a single file', () => {
+    const root = setupRepo({
+      files: {
+        'docs/dashboard-state-machine.md': '# Dashboard\n',
+      },
+      commit: true,
+    })
+
+    const result = resolveMarkdownReference('@dashboard', root)
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.message).toBe('@dashboard is not an exact markdown reference. Use shell completion to choose a file, or pass the explicit markdown path.')
+      expect(result.suggestions).toEqual(['docs/dashboard-state-machine.md'])
+    }
+    expect(completeMarkdownReferences('@dashboard', root)).toEqual(['@docs/dashboard-state-machine.md'])
   })
 
   it('returns a helpful empty-query message with markdown suggestions', () => {

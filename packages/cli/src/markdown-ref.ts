@@ -30,22 +30,32 @@ export function resolveMarkdownReference(input: string, cwd: string): MarkdownRe
     }
   }
 
-  const matches = findMarkdownMatches(listMarkdownFiles(cwd), query)
-  if (matches.length === 0) {
+  const files = listMarkdownFiles(cwd)
+  const exactMatches = findExactMarkdownMatches(files, query)
+  if (exactMatches.length === 1) {
+    return { ok: true, path: exactMatches[0]!, matched: true }
+  }
+  if (exactMatches.length > 1) {
+    return {
+      ok: false,
+      message: `Multiple markdown files exactly match @${rawQuery}. Choose one with shell completion, or pass the explicit markdown path.`,
+      suggestions: exactMatches.slice(0, 20),
+    }
+  }
+
+  const suggestions = findMarkdownMatches(files, query).slice(0, 20)
+  if (suggestions.length === 0) {
     return {
       ok: false,
       message: `No markdown files match @${rawQuery}.`,
       suggestions: [],
     }
   }
-  if (matches.length === 1) {
-    return { ok: true, path: matches[0]!, matched: true }
-  }
 
   return {
     ok: false,
-    message: `Multiple markdown files match @${rawQuery}. Keep typing more of the path.`,
-    suggestions: matches.slice(0, 20),
+    message: `@${rawQuery} is not an exact markdown reference. Use shell completion to choose a file, or pass the explicit markdown path.`,
+    suggestions,
   }
 }
 
@@ -86,6 +96,21 @@ function findMarkdownMatches(files: string[], query: string): string[] {
     .filter((match) => match.score !== null)
     .sort((a, b) => a.score! - b.score! || a.path.localeCompare(b.path))
     .map((match) => match.path)
+}
+
+function findExactMarkdownMatches(files: string[], query: string): string[] {
+  return files.filter((path) => isExactMarkdownMatch(path, query))
+}
+
+function isExactMarkdownMatch(path: string, query: string): boolean {
+  const lowerPath = path.toLowerCase()
+  const lowerBase = basename(lowerPath)
+  const baseWithoutExt = lowerBase.endsWith('.md') ? lowerBase.slice(0, -3) : lowerBase
+  const pathWithoutExt = lowerPath.endsWith('.md') ? lowerPath.slice(0, -3) : lowerPath
+  return lowerPath === query
+    || pathWithoutExt === query
+    || lowerBase === query
+    || baseWithoutExt === query
 }
 
 function scoreMatch(path: string, query: string): number | null {

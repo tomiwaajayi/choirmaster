@@ -26,7 +26,7 @@ The markdown plan is the human authoring surface. It can live anywhere in the re
 - `choirmaster draft --interactive "goal"` asks concise terminal questions, then writes a reviewable markdown plan before any model turn.
 - `choirmaster draft "goal"` and `choirmaster draft --from notes.md` still create quick editable markdown plan skeletons.
 - `choirmaster doctor` checks local setup before the user spends tokens on an agent run.
-- Repo-wide markdown shorthand: `cm run @example` can resolve a markdown plan without requiring the user to remember the full path.
+- Repo-wide markdown shorthand: `cm run @example` can resolve exact markdown references without requiring the user to remember the full path.
 - Live markdown completions for common shells: zsh, bash, fish, PowerShell, and Nushell all call the same `cm __complete markdown @query` protocol.
 - `choirmaster init` defaults `manifest.base` to the current branch, falling back to `main` only when no branch can be detected.
 - Visible self-dogfood config in this repo (`.choirmaster/`), proving the runtime against itself.
@@ -115,7 +115,7 @@ These are no longer roadmap items, but they shape the remaining work:
 - `*.tasks.json` validation runs before any task starts, with cycle detection and unsafe-path rejection.
 - Markdown planner: `choirmaster plan <plan.md>` and `choirmaster run <plan.md>` decompose a markdown plan into a validated tasks file. Mutation guard refuses any planner edit outside the unique planner scratch path, including changes to gitignored files matching `forbiddenPaths`.
 - Markdown drafting: `choirmaster draft --interactive "goal"` asks concise terminal questions and writes a reviewable markdown plan; `choirmaster draft "goal"` and `choirmaster draft --from notes.md` remain fast editable scaffolds.
-- Markdown shorthand and completions: `@query` resolves markdown plans anywhere in the repo, and generated shell completion scripts provide live `@query` suggestions for zsh, bash, fish, PowerShell, and Nushell.
+- Markdown shorthand and completions: generated shell completion scripts provide live fuzzy `@query` suggestions for zsh, bash, fish, PowerShell, and Nushell; command execution only accepts exact `@` references so ChoirMaster never guesses the wrong file.
 - Init branch defaults: `choirmaster init` initializes `manifest.base` from the current branch and escapes unusual branch names safely; detached or non-git directories fall back to `main`.
 - Sandbox prepare hook: `worktreeSandbox({ prepare: { command: 'pnpm install --frozen-lockfile' } })` runs once per fresh worktree before any agent turn. Prepare failure blocks the task immediately instead of consuming implementer attempts.
 - Duplicate gate-failure detection: two consecutive attempts with the same normalized failure signature block the task instead of burning the rest of the retry budget on an environment problem.
@@ -152,7 +152,7 @@ Core commands:
 - `choirmaster run <plan.md>`
 - `choirmaster plan <plan.md>`
 - `choirmaster run --resume <run-id>`
-- `cm run @query` and `cm plan @query` for matching markdown plans anywhere in the repo
+- `cm run @query` and `cm plan @query` for exact markdown references, with fuzzy matching handled by shell completions
 - `cm completions <zsh|bash|fish|powershell|nushell>` for live `@query` shell suggestions
 
 Needed polish:

@@ -27,8 +27,8 @@ Solo developers, indie hackers, and small teams running scoped docs work, tests,
 
 ## What you get out of the box
 
-- **Markdown-first planning.** `choirmaster run <plan.md>` plans and runs in one flow. `choirmaster plan <plan.md>` stops after generating the task contract so you can review it first. Use `@query` to match a markdown plan anywhere in the repo, e.g. `cm run @example`.
-- **Live plan completions.** `cm completions <shell>` installs shell glue for zsh, bash, fish, PowerShell, and Nushell so `cm run @exa<Tab>` can suggest matching markdown plans while you type.
+- **Markdown-first planning.** `choirmaster run <plan.md>` plans and runs in one flow. `choirmaster plan <plan.md>` stops after generating the task contract so you can review it first.
+- **Live markdown completions.** `cm completions <shell>` installs shell glue for zsh, bash, fish, PowerShell, and Nushell so `cm run @exa<Tab>` can suggest markdown files while you type. Without completion, use an explicit path or an exact `@` reference.
 - **Typed task contracts.** Each generated `*.tasks.json` declares branches, worktrees, allowed and forbidden paths, gates, dependencies, retry limits, and definitions of done. The runtime validates the whole file before any task starts.
 - **Hard scope enforcement.** Edits outside `allowed_paths` are caught after the agent's turn and the worktree is reverted. The check looks at committed + staged + unstaged + untracked, so an agent that ignores the prompt and commits anyway is still rolled back.
 - **Planner mutation guard.** Planning runs against the real repo, so ChoirMaster snapshots git-visible state plus configured forbidden paths before and after the planner turn. Rogue planner edits block the run.
@@ -125,7 +125,7 @@ mkdir ~/.config/nushell
 cm completions nushell | save --append ~/.config/nushell/config.nu
 ```
 
-After opening a new shell, `cm run @exa<Tab>` and `cm plan @exa<Tab>` suggest matching markdown files from anywhere in the repo. If your shell is not listed, it can still call the stable protocol: `cm __complete markdown @exa`.
+After opening a new shell, `cm run @exa<Tab>` and `cm plan @exa<Tab>` suggest matching markdown files from anywhere in the repo. At execution time, `@` references must be exact so ChoirMaster does not guess the wrong file when completions are unavailable. If your shell is not listed, it can still call the stable protocol: `cm __complete markdown @exa`.
 
 ## Quickstart
 

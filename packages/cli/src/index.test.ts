@@ -177,9 +177,12 @@ const planner = {
   engine: 'fake',
   model: 'planner',
   async invoke(opts) {
+    const outputRel = opts.userPrompt.match(/\\.choirmaster\\/tasks\\/\\.tmp\\/plan-output-[^\\s]+\\.json/)?.[0]
+    if (!outputRel) throw new Error('missing planner output path')
     await import('node:fs').then(({ mkdirSync, writeFileSync }) => {
-      mkdirSync(opts.cwd + '/.choirmaster', { recursive: true })
-      writeFileSync(opts.cwd + '/.choirmaster/plan-output.json', JSON.stringify([task]))
+      const outputPath = opts.cwd + '/' + outputRel
+      mkdirSync(outputPath.replace(/\\/[^/]+$/, ''), { recursive: true })
+      writeFileSync(outputPath, JSON.stringify([task]))
     })
     return { status: 0, stdout: '', stderr: '', durationMs: 1, capacityHit: false }
   },

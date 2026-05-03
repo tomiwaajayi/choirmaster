@@ -69,7 +69,7 @@ export async function initCommand(args: InitCommandArgs = {}): Promise<number> {
   process.stdout.write(`  5. Draft your own markdown plan, or try the example end-to-end. Either:\n`)
   process.stdout.write(`       choirmaster draft --interactive "describe the change you want"\n`)
   process.stdout.write(`       choirmaster draft "describe the change you want"        # quick editable scaffold\n`)
-  process.stdout.write(`       choirmaster run @example                              # match the example markdown plan\n`)
+  process.stdout.write(`       choirmaster run @example                              # exact reference to the example markdown plan\n`)
   process.stdout.write(`       choirmaster run .choirmaster/plans/example.md          # same thing, explicit path\n`)
   process.stdout.write(`       choirmaster plan @example                             # inspect the generated task contract\n`)
   process.stdout.write(`  6. (Optional) install live shell completions for @-references:\n`)

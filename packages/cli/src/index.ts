@@ -74,7 +74,7 @@ Draft options:
   --force, -f                   Overwrite an existing markdown plan
 
 Markdown shortcuts:
-  @query                        Match markdown files in the repo, e.g. cm run @example
+  @query                        Exact markdown reference; completions provide fuzzy suggestions
 
 Completion protocol:
   __complete markdown <@query>  Print markdown suggestions for shell adapters
