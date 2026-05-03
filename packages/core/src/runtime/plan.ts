@@ -2,8 +2,8 @@
  * `runPlanner`: turn a markdown plan into a validated `*.tasks.json`.
  *
  * Single-shot today. The planner agent reads the plan markdown, explores
- * the codebase, and writes `.choirmaster/plan-output.json` at the project
- * root. The runtime then validates the output through `validateTasksFile`
+ * the codebase, and writes a unique scratch JSON file under
+ * `.choirmaster/tasks/.tmp/`. The runtime then validates the output through `validateTasksFile`
  * and (on success) copies it to the caller's chosen tasks-file path.
  *
  * No iteration loop yet. A plan-reviewer pass that catches "too broad" and
@@ -11,7 +11,7 @@
  * so users can stop hand-authoring tasks.json files end-to-end.
  */
 
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -27,11 +27,12 @@ import { buildSystemPrompt, loadPromptFile } from './prompt.js'
 import { matchesGlob } from './scope.js'
 import { validateTasksFile } from './tasks-file.js'
 
-export const PLAN_OUTPUT_RELATIVE_PATH = '.choirmaster/plan-output.json'
+export const PLAN_OUTPUT_SCRATCH_DIR = '.choirmaster/tasks/.tmp'
+export const PLAN_OUTPUT_RELATIVE_PATH = `${PLAN_OUTPUT_SCRATCH_DIR}/plan-output.json`
 
 /**
  * Tools the planner is allowed to use. Read-only on the codebase plus a
- * narrow Write so the agent can emit `plan-output.json`. The Bash subset
+ * narrow Write so the agent can emit planner-output JSON. The Bash subset
  * mirrors what the implementer gets minus anything that mutates state.
  */
 const PLANNER_TOOLS = [
@@ -116,26 +117,28 @@ export async function runPlanner(
   }
 
   const planMarkdown = readFileSync(planPath, 'utf8')
+  const outputRel = plannerOutputRelativePath(planPath, outputPath)
+  const outputAbs = join(ctx.projectRoot, outputRel)
 
   const planner = ctx.config.agents.planner
   const systemPrompt = buildSystemPrompt(
     loadPromptFile(ctx.projectRoot, ctx.config.prompts.planner),
     ctx.config,
   )
-  const userPrompt = buildPlannerUserPrompt(planMarkdown, planPath, ctx)
+  const userPrompt = buildPlannerUserPrompt(planMarkdown, planPath, outputRel, ctx)
 
   // Clear any stale output before the agent runs so we can't accidentally
   // pick up a previous run's file when the new turn writes nothing.
-  const outputAbs = join(ctx.projectRoot, PLAN_OUTPUT_RELATIVE_PATH)
   if (existsSync(outputAbs)) rmSync(outputAbs)
+  ensureParent(outputAbs)
 
   // Snapshot the project's git status BEFORE the planner runs. The planner
   // operates on the real project root with Write access (so it can produce
-  // plan-output.json), which means a misbehaving or prompt-injected planner
+  // planner-output JSON), which means a misbehaving or prompt-injected planner
   // could mutate source files on the user's branch. After the turn we'll
   // diff this snapshot against the post-run status and refuse to commit
-  // the planner's verdict if anything outside `.choirmaster/plan-output.json`
-  // changed. We do NOT auto-revert - the user may have unrelated WIP we
+  // the planner's verdict if anything outside the run-specific planner
+  // scratch file changed. We do NOT auto-revert - the user may have unrelated WIP we
   // shouldn't touch - but we tell them exactly what moved so they can
   // `git restore` themselves.
   //
@@ -181,7 +184,7 @@ export async function runPlanner(
   logger?.line(`${planner.name} (planner) finished in ${Date.now() - t0}ms; exit ${result.status}`)
 
   // Project-root mutation guard. The only path the planner is allowed to
-  // touch is `.choirmaster/plan-output.json`. Anything else - source
+  // touch is the unique planner scratch path. Anything else - source
   // edits, gitignore tweaks, new untracked files, or any forbidden-path
   // file (including ignored secrets) - is treated as a contract
   // violation. This check fires BEFORE the capacity early return: a
@@ -189,14 +192,14 @@ export async function runPlanner(
   // still surface those rogue paths to the user, otherwise the project
   // root is left dirty with no error trace.
   const rogue = [
-    ...unauthorizedChanges(ctx.projectRoot, baselineStatus),
-    ...forbiddenPathChanges(ctx.projectRoot, forbiddenPaths, baselineForbidden),
+    ...unauthorizedChanges(ctx.projectRoot, baselineStatus, outputRel),
+    ...forbiddenPathChanges(ctx.projectRoot, forbiddenPaths, baselineForbidden, outputRel),
   ]
   if (rogue.length > 0) {
     const errors = [
       'Planner mutated files outside the allowed planner-output path. Aborting before writing tasks.json.',
       'Affected paths (review and `git restore` as needed):',
-      ...rogue.map((path) => `  - ${path}`),
+      ...rogue.map((change) => `  - ${change}`),
     ]
     if (result.capacityHit) {
       errors.push(
@@ -220,7 +223,7 @@ export async function runPlanner(
     return {
       ok: false,
       errors: [
-        `Planner finished without writing ${PLAN_OUTPUT_RELATIVE_PATH}. Check the planner prompt and agent logs.`,
+        `Planner finished without writing ${outputRel}. Check the planner prompt and agent logs.`,
       ],
     }
   }
@@ -272,6 +275,7 @@ export async function runPlanner(
 function buildPlannerUserPrompt(
   planMarkdown: string,
   planPath: string,
+  outputRel: string,
   ctx: RuntimeContext,
 ): string {
   const projectForbidden = ctx.config.forbiddenPaths ?? []
@@ -280,7 +284,7 @@ function buildPlannerUserPrompt(
     '',
     `You are decomposing the plan below into a JSON list of tasks. Read the`,
     `plan, explore the codebase as needed, and write your output to`,
-    `\`${PLAN_OUTPUT_RELATIVE_PATH}\`. Do not edit any other files.`,
+    `\`${outputRel}\`. Do not edit any other files.`,
     '',
     `Plan source: ${planPath}`,
     `Base branch: ${ctx.config.base}`,
@@ -297,6 +301,12 @@ function buildPlannerUserPrompt(
     planMarkdown.trim(),
   ]
   return lines.join('\n')
+}
+
+function plannerOutputRelativePath(planPath: string, outputPath: string): string {
+  const seed = createHash('sha1').update(`${planPath}\n${outputPath}`).digest('hex').slice(0, 8)
+  const nonce = randomBytes(4).toString('hex')
+  return `${PLAN_OUTPUT_SCRATCH_DIR}/plan-output-${seed}-${nonce}.json`
 }
 
 interface StatusEntry {
@@ -372,7 +382,7 @@ function hashFileSafe(absPath: string): string {
  * now), returns a synthetic entry so the caller still blocks rather
  * than silently proceeding.
  */
-function unauthorizedChanges(cwd: string, before: Map<string, StatusEntry>): string[] {
+function unauthorizedChanges(cwd: string, before: Map<string, StatusEntry>, allowedPath: string): string[] {
   const after = gitStatusSnapshot(cwd)
   if (after === null) {
     return ['<post-planner `git status` failed; cannot verify project state was preserved>']
@@ -380,16 +390,33 @@ function unauthorizedChanges(cwd: string, before: Map<string, StatusEntry>): str
   const rogue: string[] = []
   const allPaths = new Set<string>([...before.keys(), ...after.keys()])
   for (const path of allPaths) {
-    if (path === PLAN_OUTPUT_RELATIVE_PATH) continue
+    if (path === allowedPath) continue
     const prior = before.get(path)
     const now = after.get(path)
     if (prior && now && prior.status === now.status && prior.hash === now.hash) {
       // Unchanged dirty path - pre-existing user WIP.
       continue
     }
-    rogue.push(path)
+    rogue.push(formatGitChange(path, prior, now))
   }
   return rogue
+}
+
+function formatGitChange(
+  path: string,
+  prior: StatusEntry | undefined,
+  now: StatusEntry | undefined,
+): string {
+  const before = formatStatus(prior)
+  const after = formatStatus(now)
+  const contentChanged = prior && now && prior.status === now.status && prior.hash !== now.hash
+  const suffix = contentChanged ? '; content changed' : ''
+  return `${path} (git before: ${before}; after: ${after}${suffix})`
+}
+
+function formatStatus(entry: StatusEntry | undefined): string {
+  if (!entry) return 'clean/missing'
+  return entry.status
 }
 
 /**
@@ -430,15 +457,19 @@ function forbiddenPathChanges(
   projectRoot: string,
   forbiddenPaths: string[],
   before: Map<string, string>,
+  allowedPath: string,
 ): string[] {
   if (forbiddenPaths.length === 0) return []
   const after = forbiddenPathSnapshot(projectRoot, forbiddenPaths)
   const rogue: string[] = []
   const allPaths = new Set<string>([...before.keys(), ...after.keys()])
   for (const path of allPaths) {
-    if (path === PLAN_OUTPUT_RELATIVE_PATH) continue
+    if (path === allowedPath) continue
     if (before.get(path) === after.get(path)) continue
-    rogue.push(`${path} (forbidden path)`)
+    const prior = before.has(path) ? 'present' : 'missing'
+    const now = after.has(path) ? 'present' : 'missing'
+    const changed = before.has(path) && after.has(path) ? '; content changed' : ''
+    rogue.push(`${path} (forbidden path; before: ${prior}; after: ${now}${changed})`)
   }
   return rogue
 }

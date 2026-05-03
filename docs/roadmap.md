@@ -113,7 +113,7 @@ These are no longer roadmap items, but they shape the remaining work:
 - Single published `choirmaster` package: CLI, runtime, and Claude adapter bundled into one install.
 - `cm` alias ships alongside `choirmaster`.
 - `*.tasks.json` validation runs before any task starts, with cycle detection and unsafe-path rejection.
-- Markdown planner: `choirmaster plan <plan.md>` and `choirmaster run <plan.md>` decompose a markdown plan into a validated tasks file. Mutation guard refuses any planner edit outside `.choirmaster/plan-output.json`, including changes to gitignored files matching `forbiddenPaths`.
+- Markdown planner: `choirmaster plan <plan.md>` and `choirmaster run <plan.md>` decompose a markdown plan into a validated tasks file. Mutation guard refuses any planner edit outside the unique planner scratch path, including changes to gitignored files matching `forbiddenPaths`.
 - Markdown drafting: `choirmaster draft --interactive "goal"` asks concise terminal questions and writes a reviewable markdown plan; `choirmaster draft "goal"` and `choirmaster draft --from notes.md` remain fast editable scaffolds.
 - Markdown shorthand and completions: `@query` resolves markdown plans anywhere in the repo, and generated shell completion scripts provide live `@query` suggestions for zsh, bash, fish, PowerShell, and Nushell.
 - Init branch defaults: `choirmaster init` initializes `manifest.base` from the current branch and escapes unusual branch names safely; detached or non-git directories fall back to `main`.

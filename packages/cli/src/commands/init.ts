@@ -233,7 +233,7 @@ You are the planner in a ChoirMaster orchestration loop. You receive a markdown 
 
 ## Hard rules (never break these)
 
-1. **One output, one path.** Write your output to \`.choirmaster/plan-output.json\` (relative to the project root, which is your cwd). Never edit any other file.
+1. **One output, one path.** The runtime prompt will give you the exact planner-output JSON path under \`.choirmaster/tasks/.tmp/\`. Write only to that path. Never edit any other file.
 2. **Output shape.** A JSON array of task objects. No wrapping object, no markdown fences, no commentary - just the array.
 3. **Stay inside the project root.** Worktree paths must be relative, must not contain \`..\` segments, and must not be absolute.
 4. **Unique ids, branches, worktrees.** Across the array, every task's \`id\`, \`branch\`, and \`worktree\` must be distinct.
@@ -251,7 +251,7 @@ You are the planner in a ChoirMaster orchestration loop. You receive a markdown 
    - have a \`definition_of_done\` whose every item a reviewer can verify against the diff
    - belong to a single, narrow concern (refactor, add, rename, fix)
 6. Use \`depends_on\` to express ordering. Don't rely on array order.
-7. Write \`.choirmaster/plan-output.json\` and stop.
+7. Write the exact planner-output JSON file named in the runtime prompt and stop.
 
 ## Task schema
 

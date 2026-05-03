@@ -7,9 +7,9 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -22,7 +22,7 @@ import type {
   ProjectConfig,
 } from '../types.js'
 import type { RuntimeContext } from './context.js'
-import { PLAN_OUTPUT_RELATIVE_PATH, runPlanner } from './plan.js'
+import { PLAN_OUTPUT_SCRATCH_DIR, runPlanner } from './plan.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test scaffolding
@@ -114,8 +114,8 @@ const RESULT_CAPACITY: AgentResult = {
 /** Turn: write the given JSON to the planner-output file, then succeed. */
 function turnWriteOutput(payload: unknown): Turn {
   return async (opts) => {
-    const outFile = join(opts.cwd, PLAN_OUTPUT_RELATIVE_PATH)
-    mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
+    const outFile = plannerOutputPathFromPrompt(opts)
+    mkdirSync(dirname(outFile), { recursive: true })
     writeFileSync(outFile, JSON.stringify(payload))
     return RESULT_OK
   }
@@ -124,11 +124,23 @@ function turnWriteOutput(payload: unknown): Turn {
 /** Turn: write a literal string (used for invalid-JSON case). */
 function turnWriteRaw(raw: string): Turn {
   return async (opts) => {
-    const outFile = join(opts.cwd, PLAN_OUTPUT_RELATIVE_PATH)
-    mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
+    const outFile = plannerOutputPathFromPrompt(opts)
+    mkdirSync(dirname(outFile), { recursive: true })
     writeFileSync(outFile, raw)
     return RESULT_OK
   }
+}
+
+function plannerOutputPathFromPrompt(opts: AgentInvokeOpts): string {
+  const match = opts.userPrompt.match(/write your output to\n`([^`]+)`/)
+  if (!match?.[1]) throw new Error(`planner output path missing from prompt:\n${opts.userPrompt}`)
+  return join(opts.cwd, match[1])
+}
+
+function readScratchFiles(projectRoot: string): string[] {
+  const scratchDir = join(projectRoot, PLAN_OUTPUT_SCRATCH_DIR)
+  if (!existsSync(scratchDir)) return []
+  return readdirSync(scratchDir)
 }
 
 /** Turn: succeed without writing anything. */
@@ -207,7 +219,7 @@ describe('runPlanner', () => {
     expect(onDisk).toHaveLength(1)
     expect(onDisk[0].id).toBe('TASK-01')
     // Transient planner-output file cleaned up.
-    expect(existsSync(join(env.projectRoot, PLAN_OUTPUT_RELATIVE_PATH))).toBe(false)
+    expect(readScratchFiles(env.projectRoot)).toHaveLength(0)
   })
 
   it('reports validation errors when the planner emits an invalid task', async () => {
@@ -227,7 +239,7 @@ describe('runPlanner', () => {
     expect(result.errors.length).toBeGreaterThan(0)
     expect(result.errors.some((e) => e.includes('tasks[0].id'))).toBe(true)
     // Raw output preserved for debugging.
-    expect(result.rawOutputPath).toBe(join(env.projectRoot, PLAN_OUTPUT_RELATIVE_PATH))
+    expect(result.rawOutputPath).toContain(`${PLAN_OUTPUT_SCRATCH_DIR}/plan-output-`)
     expect(existsSync(result.rawOutputPath!)).toBe(true)
     // No tasks file written.
     expect(existsSync(env.outputPath)).toBe(false)
@@ -279,14 +291,13 @@ describe('runPlanner', () => {
     expect(result.errors[0]).toMatch(/capacity/i)
   })
 
-  it('clears stale planner-output before invoking the agent', async () => {
-    // A previous run left a stale plan-output.json in place. The new run's
-    // agent does NOT write a fresh one (turnNoop). Without the clear, the
-    // stale file would be parsed and validation would either accept the
-    // ghost data or report misleading errors.
-    mkdirSync(join(env.projectRoot, '.choirmaster'), { recursive: true })
+  it('ignores stale planner scratch output from another planning run', async () => {
+    // A previous run left a stale scratch file in place. The new run's
+    // agent does NOT write a fresh one (turnNoop). Because planner scratch
+    // paths are unique, the stale file cannot be parsed as ghost output.
+    mkdirSync(join(env.projectRoot, PLAN_OUTPUT_SCRATCH_DIR), { recursive: true })
     writeFileSync(
-      join(env.projectRoot, PLAN_OUTPUT_RELATIVE_PATH),
+      join(env.projectRoot, PLAN_OUTPUT_SCRATCH_DIR, 'plan-output-stale.json'),
       JSON.stringify([{ ...validTask, id: 'STALE' }]),
     )
 
@@ -300,8 +311,8 @@ describe('runPlanner', () => {
 
     expect(result.ok).toBe(false)
     if (result.ok) return
-    // The stale file was cleared before the agent ran; agent wrote
-    // nothing; runtime correctly reports no output.
+    // Agent wrote nothing; runtime correctly reports no output instead of
+    // reading the stale scratch file.
     expect(result.errors[0]).toMatch(/without writing/)
   })
 
@@ -357,7 +368,7 @@ describe('runPlanner', () => {
     expect(onDisk[0].id).toBe('TASK-01') // freshly planned, replaced EDITED
   })
 
-  it('blocks when the planner mutates a file outside plan-output.json', async () => {
+  it('blocks when the planner mutates a file outside planner scratch output', async () => {
     // A misbehaving / prompt-injected planner that ALSO writes to a source
     // file. The runtime must catch this via the git-status guard and
     // refuse to land the (otherwise-valid) tasks file.
@@ -366,9 +377,8 @@ describe('runPlanner', () => {
       writeFileSync(join(opts.cwd, '.choirmaster/prompts/planner.md'), 'TAMPERED\n')
       // Also write the legitimate planner output - on its own this would
       // pass validation, which is exactly what makes the guard necessary.
-      mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
       writeFileSync(
-        join(opts.cwd, '.choirmaster/plan-output.json'),
+        plannerOutputPathFromPrompt(opts),
         JSON.stringify([validTask]),
       )
       return RESULT_OK
@@ -384,7 +394,9 @@ describe('runPlanner', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.errors[0]).toMatch(/outside the allowed planner-output/)
-    expect(result.errors.some((e) => e.includes('planner.md'))).toBe(true)
+    expect(result.errors.some((e) =>
+      e.includes('planner.md') && e.includes('git before: clean/missing') && e.includes('after:  M'),
+    )).toBe(true)
     // No tasks file written - the validated output is rejected at the guard.
     expect(existsSync(env.outputPath)).toBe(false)
   })
@@ -393,9 +405,8 @@ describe('runPlanner', () => {
     const rogueWriter: Turn = async (opts) => {
       // New file in the project root, outside `.choirmaster/`.
       writeFileSync(join(opts.cwd, 'rogue.txt'), 'leaked\n')
-      mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
       writeFileSync(
-        join(opts.cwd, '.choirmaster/plan-output.json'),
+        plannerOutputPathFromPrompt(opts),
         JSON.stringify([validTask]),
       )
       return RESULT_OK
@@ -436,6 +447,26 @@ describe('runPlanner', () => {
       .toBe('# user edited\n')
   })
 
+  it('does not flag an unchanged untracked manifest as planner mutation', async () => {
+    // Mirrors a freshly initialized project where .choirmaster/manifest.ts
+    // exists locally but has not been committed yet. The planner may write
+    // its scratch output under .choirmaster, but unchanged config should
+    // remain classified as pre-existing user state, not rogue mutation.
+    writeFileSync(join(env.projectRoot, '.choirmaster/manifest.ts'), 'export default {}\n')
+
+    const planner = fakePlanner([turnWriteOutput([validTask])])
+    const ctx = buildContext(env, buildConfig(planner))
+
+    const result = await runPlanner(ctx, {
+      planPath: env.planPath,
+      outputPath: env.outputPath,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(readFileSync(join(env.projectRoot, '.choirmaster/manifest.ts'), 'utf8'))
+      .toBe('export default {}\n')
+  })
+
   it('catches planner edits to a file that was already dirty before the run', async () => {
     // The user has unrelated WIP on planner.md ('# user edited\n'). The
     // planner then re-edits the same file. With status-only tracking the
@@ -448,9 +479,8 @@ describe('runPlanner', () => {
       // Planner overwrites the user's WIP with different content. Status
       // stays the same (' M'); only content differs.
       writeFileSync(join(opts.cwd, '.choirmaster/prompts/planner.md'), '# TAMPERED\n')
-      mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
       writeFileSync(
-        join(opts.cwd, '.choirmaster/plan-output.json'),
+        plannerOutputPathFromPrompt(opts),
         JSON.stringify([validTask]),
       )
       return RESULT_OK
@@ -465,7 +495,7 @@ describe('runPlanner', () => {
 
     expect(result.ok).toBe(false)
     if (result.ok) return
-    expect(result.errors.some((e) => e.includes('planner.md'))).toBe(true)
+    expect(result.errors.some((e) => e.includes('planner.md') && e.includes('content changed'))).toBe(true)
     expect(existsSync(env.outputPath)).toBe(false)
   })
 
@@ -507,9 +537,8 @@ describe('runPlanner', () => {
     const rogueDelete: Turn = async (opts) => {
       // Planner removes the user's WIP file outright.
       rmSync(join(opts.cwd, 'scratch.txt'))
-      mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
       writeFileSync(
-        join(opts.cwd, '.choirmaster/plan-output.json'),
+        plannerOutputPathFromPrompt(opts),
         JSON.stringify([validTask]),
       )
       return RESULT_OK
@@ -539,9 +568,8 @@ describe('runPlanner', () => {
 
     const rogueAdd: Turn = async (opts) => {
       writeFileSync(join(opts.cwd, 'scratch/leaked.txt'), 'planner-added\n')
-      mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
       writeFileSync(
-        join(opts.cwd, '.choirmaster/plan-output.json'),
+        plannerOutputPathFromPrompt(opts),
         JSON.stringify([validTask]),
       )
       return RESULT_OK
@@ -609,9 +637,8 @@ describe('runPlanner', () => {
 
     const rogueEnvWrite: Turn = async (opts) => {
       writeFileSync(join(opts.cwd, '.env'), 'API_KEY=stolen\n')
-      mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
       writeFileSync(
-        join(opts.cwd, '.choirmaster/plan-output.json'),
+        plannerOutputPathFromPrompt(opts),
         JSON.stringify([validTask]),
       )
       return RESULT_OK
@@ -643,9 +670,8 @@ describe('runPlanner', () => {
 
     const rogueEnvDelete: Turn = async (opts) => {
       rmSync(join(opts.cwd, '.env'))
-      mkdirSync(join(opts.cwd, '.choirmaster'), { recursive: true })
       writeFileSync(
-        join(opts.cwd, '.choirmaster/plan-output.json'),
+        plannerOutputPathFromPrompt(opts),
         JSON.stringify([validTask]),
       )
       return RESULT_OK
