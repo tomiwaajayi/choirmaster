@@ -47,18 +47,28 @@ export interface ResumableRun {
  * picker and the direct path apply the same hardening.
  *
  * Reasons we reject:
- * - id contains `/`, `\`, or starts with `.` (path-traversal shape).
- * - id is the live-active sentinel.
+ * - id is empty, the active sentinel, or starts with a dot.
+ * - id contains anything outside the safe-charset allowlist.
+ *   The runtime's generator only ever produces `[A-Za-z0-9-]+` ids
+ *   (timestamp + random base36), so legitimate ids match easily.
+ *   Crucially this rejects ESC and other terminal-control bytes that
+ *   would otherwise inject escape sequences when the picker prints
+ *   the id back to the user. We do NOT just scrub for display: the
+ *   id also flows into filesystem and state.json paths, where any
+ *   special character is a hazard.
  * - The run directory is missing or is not a real directory (e.g. a
  *   symlink to an outside path).
  * - state.json is missing or is not a real regular file.
  *
  * Returned `ok: true` carries absolute paths the caller can hand to
- * read/write APIs.
+ * read/write APIs. Reasons in the `ok: false` case are pre-scrubbed
+ * so they're safe to print without further sanitization.
  */
 export type RunPathValidation =
   | { ok: true; runDir: string; statePath: string; mtimeMs: number }
   | { ok: false; reason: string }
+
+const SAFE_RUN_ID = /^[A-Za-z0-9._-]+$/
 
 export function validateRunPath(projectRoot: string, runId: string): RunPathValidation {
   if (typeof runId !== 'string' || runId.length === 0) {
@@ -67,8 +77,15 @@ export function validateRunPath(projectRoot: string, runId: string): RunPathVali
   if (runId === 'active') {
     return { ok: false, reason: 'reserved run id' }
   }
-  if (runId.startsWith('.') || runId.includes('/') || runId.includes('\\')) {
-    return { ok: false, reason: `unsafe run id: ${runId}` }
+  if (runId.startsWith('.')) {
+    return { ok: false, reason: 'unsafe run id (cannot start with a dot)' }
+  }
+  if (!SAFE_RUN_ID.test(runId)) {
+    // Strip before echoing in case the id carries terminal-control bytes.
+    return {
+      ok: false,
+      reason: `unsafe run id: ${stripAnsi(runId).slice(0, 40)}`,
+    }
   }
 
   const runDir = join(projectRoot, '.choirmaster/runs', runId)
@@ -191,7 +208,11 @@ function summarizeState(id: string, parsed: unknown, modifiedAt: number): Resuma
   }
 
   return {
-    id,
+    // The id is already validated by `validateRunPath` against a strict
+    // allowlist before we get here, but scrub once more on the display
+    // boundary as defense-in-depth: belt + suspenders for the one
+    // value that flows directly into picker frames and resume hints.
+    id: stripAnsi(id),
     status,
     currentTaskId: stripDisplay(firstIncomplete.id),
     currentTaskTitle: stripDisplay(firstIncomplete.title),

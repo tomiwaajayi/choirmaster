@@ -205,6 +205,49 @@ describe('validateRunPath', () => {
     expect(validateRunPath(root, 'active')).toMatchObject({ ok: false })
   })
 
+  it('rejects ids containing ANSI/control bytes before any filesystem touch', () => {
+    const root = mkdtempSync(join(tmpdir(), 'choir-runs-'))
+    roots.push(root)
+    // The runtime's id generator only ever produces [A-Za-z0-9-]+ ids,
+    // so anything with an ESC, CR, NUL, or other control byte is
+    // adversarial. We must reject it BEFORE doing the filesystem check
+    // so that even a real on-disk directory of that shape can't
+    // smuggle terminal-control bytes into the picker output.
+    const cases = [
+      'evil\x1b[2Jname',
+      'cr\rmasked',
+      'tab\tname',
+      'nul\x00here',
+      'space here',
+      'em🎉oji',
+    ]
+    for (const id of cases) {
+      const result = validateRunPath(root, id)
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        // The reason itself must not contain raw ESC bytes either.
+        expect(result.reason).not.toContain('\x1b')
+        expect(result.reason).not.toContain('\x00')
+      }
+    }
+  })
+
+  it('rejects ANSI-bearing ids even when a real directory of that name exists', () => {
+    // Defense-in-depth: even if some external tool created such a
+    // directory, listResumableRuns / validateRunPath must not accept it.
+    const root = mkdtempSync(join(tmpdir(), 'choir-runs-'))
+    roots.push(root)
+    const evilId = 'safe\x1b[2Jname'
+    const dir = join(root, '.choirmaster/runs', evilId)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'state.json'),
+      JSON.stringify({ tasks: [{ id: 'T', status: 'waiting_for_capacity' }] }),
+    )
+    expect(validateRunPath(root, evilId).ok).toBe(false)
+    expect(listResumableRuns(root)).toEqual([])
+  })
+
   it('rejects a missing run directory', () => {
     const root = mkdtempSync(join(tmpdir(), 'choir-runs-'))
     roots.push(root)
