@@ -12,6 +12,7 @@ import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path
 
 import { runPlanner, type RunPlannerResult } from '@choirmaster/core'
 
+import { hintStyle } from '../hint-style.js'
 import { formatMarkdownReferenceError, resolveMarkdownReference } from '../markdown-ref.js'
 import { loadManifest } from '../manifest.js'
 import { resolveProjectRoot } from '../project-root.js'
@@ -101,7 +102,7 @@ export async function planCommand(args: PlanCommandArgs): Promise<number> {
     `\nPlan generated: ${result.tasksGenerated} task(s) -> ${shortPath(result.outputPath, projectRoot)}\n`,
   )
   const runReference = args.planFile.startsWith('@') ? args.planFile : planFile
-  process.stdout.write(`Task contract written for inspection. Run with: choirmaster run ${runReference}\n\n`)
+  process.stdout.write(`Task contract written for inspection. Run with: ${hintStyle().runReference(runReference)}\n\n`)
   return 0
 }
 

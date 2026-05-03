@@ -28,7 +28,7 @@ Solo developers, indie hackers, and small teams running scoped docs work, tests,
 ## What you get out of the box
 
 - **Markdown-first planning.** `choirmaster run <plan.md>` plans and runs in one flow. `choirmaster plan <plan.md>` stops after generating the task contract so you can review it first.
-- **Interactive `cm` prompt.** Run `cm` with no args to open a ChoirMaster-owned prompt with `/draft`, `/plan`, `/run`, `/resume`, `/doctor`, and `@` markdown suggestions. No shell setup required.
+- **Polished interactive shell.** Run `cm` with no args to enter a ChoirMaster-owned shell with live `/` and `@` suggestions, first-class pickers for plans and resumable runs, a status header showing repo, branch, base, dirty state, and resumable count, and shell-native `/resume <run-id>` hints when a run pauses inside the shell. No shell setup required.
 - **Built-in markdown picker.** Run `cm run` or `cm plan` with no path and ChoirMaster opens its own searchable markdown picker. No shell setup required.
 - **Live markdown completions.** `cm completions <shell>` installs optional shell glue for zsh, bash, fish, PowerShell, and Nushell so `cm run @exa<Tab>` can suggest markdown files while you type. Without completion, use the built-in picker, an explicit path, or an exact `@` reference.
 - **Typed task contracts.** Each generated `*.tasks.json` declares branches, worktrees, allowed and forbidden paths, gates, dependencies, retry limits, and definitions of done. The runtime validates the whole file before any task starts.
@@ -97,23 +97,31 @@ You also need the `claude` CLI installed and authenticated. The bundled Claude a
 
 ## Interactive Mode
 
-Run `cm` with no args in a terminal to open the ChoirMaster prompt:
+Run `cm` with no args in a terminal to open the ChoirMaster shell:
 
 ```bash
 cm
 ```
 
-Inside the prompt, slash commands are owned by ChoirMaster:
+The shell opens with a status header (repo, branch, manifest base, dirty state, resumable run count) and a `cm>` prompt. Suggestions are live, not Tab-only:
+
+- Type `/` to see the command list. Filter with more characters: `/r` narrows to `/run` and `/resume`.
+- Type `@` inside `/run` or `/plan` to see matching markdown plans as you type. (`/draft` takes a free-form goal, not a plan reference, so it does not show `@` suggestions.)
+- Up/Down moves through suggestions, Tab inserts the highlighted one, Enter executes the line, Esc dismisses the suggestion list.
+
+Slash commands:
 
 ```text
 cm> /draft --interactive add email sharing to galleries
-cm> /plan
+cm> /plan                                # opens the markdown picker
 cm> /run @example
-cm> /resume 2026-05-02T07-52-44-736-fl0b
+cm> /resume                              # opens the resumable-run picker
 cm> /doctor
+cm> /help
+cm> /exit
 ```
 
-Use `/run` or `/plan` with no path to open the built-in markdown picker. Type `@` inside `/run` or `/plan` and press Tab for ChoirMaster-owned markdown suggestions, independent of your shell.
+`/run` and `/plan` with no path open the built-in markdown picker. `/resume` with no id opens a picker over runs that paused cleanly (capacity hit, interrupted mid-task, never started); blocked runs are excluded because the runtime can't auto-reuse their worktree without an explicit reset (planned). Inside the shell, capacity-paused runs print `/resume <run-id>` so you can continue without leaving. Ctrl-C while a run is in flight kills the whole process (shell included) and prints the outside form `cm --resume <run-id>` since you'll be relaunching `cm` anyway.
 
 ### Shell Completions
 

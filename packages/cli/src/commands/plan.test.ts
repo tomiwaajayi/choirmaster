@@ -68,6 +68,25 @@ describe('planCommand', () => {
     expect(code).toBe(0)
     expect(stdout).toContain('Task contract written for inspection. Run with: choirmaster run @example')
   })
+
+  it('emits shell-style run recommendation when _CHOIRMASTER_INTERACTIVE=1', async () => {
+    const root = setupRepo()
+    const previous = process.env._CHOIRMASTER_INTERACTIVE
+    process.env._CHOIRMASTER_INTERACTIVE = '1'
+    try {
+      const { code, stdout } = await capturePlan(root, {
+        planFile: '@example',
+        force: true,
+      })
+      expect(code).toBe(0)
+      expect(stdout).toContain('Task contract written for inspection. Run with: /run @example')
+      expect(stdout).not.toContain('choirmaster run @example')
+    }
+    finally {
+      if (previous === undefined) delete process.env._CHOIRMASTER_INTERACTIVE
+      else process.env._CHOIRMASTER_INTERACTIVE = previous
+    }
+  })
 })
 
 async function capturePlan(

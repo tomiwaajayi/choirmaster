@@ -24,6 +24,7 @@ import { draftCommand } from './commands/draft.js'
 import { initCommand } from './commands/init.js'
 import { defaultTasksOutputPath, planCommand } from './commands/plan.js'
 import { runCommand } from './commands/run.js'
+import { isShellHintStyle } from './hint-style.js'
 import { interactiveCommand } from './interactive.js'
 import { completeMarkdownReferences, formatMarkdownReferenceError, resolveMarkdownReference } from './markdown-ref.js'
 import { pickMarkdownFile } from './markdown-picker.js'
@@ -150,7 +151,16 @@ export async function main(argv: string[]): Promise<number> {
       process.stderr.write('--resume requires a value.\n')
       return 64
     }
-    return runCommand({ resumeRunId: runId })
+    // Mirror the run subcommand's flag handling: `cm --resume <id>` is
+    // a shortcut for `cm run --resume <id>`, and any post-id flags the
+    // user passed (--reuse-worktree, --continue-on-blocked,
+    // --no-auto-merge) should take effect just like they would there.
+    return runCommand({
+      resumeRunId: runId,
+      continueOnBlocked: args.includes('--continue-on-blocked'),
+      reuseWorktree: args.includes('--reuse-worktree'),
+      skipAutoMerge: args.includes('--no-auto-merge'),
+    })
   }
 
   if (command === 'doctor') {
@@ -355,6 +365,12 @@ async function runMarkdownInput(
   let tasksFile = selected.path
 
   if (tasksFile.toLowerCase().endsWith('.md')) {
+    if (isShellHintStyle()) {
+      // Lightweight phase overview at the top of a plan-then-run cycle.
+      // The runtime doesn't emit per-phase events, so this is a single
+      // header that orients the user instead of a live progress bar.
+      process.stdout.write('\nPhases: Planning -> Implementing -> Gates -> Reviewing -> Committing\n')
+    }
     const planExit = await planCommand({ planFile: selected.runReference ?? tasksFile, force: true })
     if (planExit !== 0) return planExit
     const projectRoot = resolveProjectRoot(process.cwd())

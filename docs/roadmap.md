@@ -18,11 +18,13 @@ ChoirMaster should help the user write a good plan, not just execute one.
 
 The markdown plan is the human authoring surface. It can live anywhere in the repo; `.choirmaster/plans/` is only the scaffolded convention. Generated `*.tasks.json` contracts live under `.choirmaster/tasks/`; the runtime owns them, and users should not need to execute them directly during the normal flow.
 
+The owned interactive shell is the recommended entry point. See [Interactive Shell Plan](./interactive-shell-plan.md) for the design notes; the shell modules now live under `packages/cli/src/interactive/`.
+
 ### Current 0.3.x Surface
 
 - Single-package install: global CLI (`npm install -g choirmaster`) or project dev dependency (`npm install -D choirmaster` with `npx choirmaster`).
 - `choirmaster` and `cm` both work as first-class command names.
-- `cm` with no args opens a persistent interactive prompt with `/draft`, `/plan`, `/run`, `/resume`, `/doctor`, and ChoirMaster-owned `@` suggestions.
+- `cm` with no args opens a polished interactive shell: live `/` and `@` suggestions, status header with repo, branch, base, dirty state, and resumable-run count, first-class pickers for `/run`, `/plan`, and `/resume`, and shell-native `/resume <run-id>` hints when a run pauses inside the shell.
 - Markdown-first: `choirmaster run <plan.md>` is the primary path; task contracts are generated artifacts for inspection and advanced/debug workflows.
 - `choirmaster draft --interactive "goal"` asks concise terminal questions, then writes a reviewable markdown plan before any model turn.
 - `choirmaster draft "goal"` and `choirmaster draft --from notes.md` still create quick editable markdown plan skeletons.
@@ -126,6 +128,7 @@ These are no longer roadmap items, but they shape the remaining work:
 - Duplicate gate-failure detection: two consecutive attempts with the same normalized failure signature block the task instead of burning the rest of the retry budget on an environment problem.
 - First successful self-dogfood: ChoirMaster ran a markdown plan against its own repo, generated tasks, ran sandbox prepare, passed `pnpm typecheck` / `pnpm test` / `pnpm build` gates, and merged a docs task branch onto `main`.
 - First `choirmaster doctor`: fast setup diagnostics for repo state, manifest loading, base branch, prompt files, configured agents, Claude CLI presence, Anthropic DNS, gates, sandbox, gitignore, and forbidden paths.
+- Polished interactive shell: raw-mode input loop with live `/` and `@` suggestions, registry-driven `/help`, first-class pickers for `/run`, `/plan`, and `/resume`, status header showing repo, branch, base, dirty state, and resumable-run count, shell-native `/resume <run-id>` hints when a run pauses inside the shell, and colored doctor labels in TTY mode.
 
 ## Phase 0: Finish the Trust Core
 

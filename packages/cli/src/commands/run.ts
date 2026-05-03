@@ -20,6 +20,8 @@ import { resolve } from 'node:path'
 import type { RunState, Task } from '@choirmaster/core'
 import { loadState, runTask, saveState, validateTasksFile } from '@choirmaster/core'
 
+import { hintStyle } from '../hint-style.js'
+import { validateRunPath } from '../interactive/runs.js'
 import { loadManifest } from '../manifest.js'
 import { resolveProjectRoot } from '../project-root.js'
 
@@ -57,11 +59,16 @@ export async function runCommand(args: RunCommandArgs): Promise<number> {
 
   if (args.resumeRunId) {
     runId = args.resumeRunId
-    runDir = resolve(projectRoot, '.choirmaster/runs', runId)
-    if (!existsSync(runDir)) {
-      process.stderr.write(`Run not found: .choirmaster/runs/${runId}\n`)
+    // Apply the same hardening the picker uses: reject path-traversal
+    // shapes, refuse symlinked run directories, and refuse symlinked
+    // state.json files. The picker would already filter these out, but
+    // a typed `cm --resume <id>` skips the picker entirely.
+    const validation = validateRunPath(projectRoot, runId)
+    if (!validation.ok) {
+      process.stderr.write(`Run not found: ${validation.reason}\n`)
       return 1
     }
+    runDir = validation.runDir
     try {
       state = loadState(runDir)
     }
@@ -251,9 +258,16 @@ function printSummary(state: RunState, halted: boolean): void {
     }
   }
 
-  const unfinished = state.tasks.some((t) => t.status !== 'completed')
-  if (unfinished) {
+  // The runtime resumes by walking tasks in order, skipping only
+  // `completed`. If the first non-completed task is `blocked` we have
+  // no way to make forward progress on `cm --resume <id>` today (the
+  // worktree already exists and `allowReuse` only fires for waiting /
+  // in_progress). Suppress the resume hint in that case to avoid
+  // pointing the user at a command that will fail at sandbox setup.
+  const firstIncomplete = state.tasks.find((t) => t.status !== 'completed')
+  const resumable = firstIncomplete !== undefined && firstIncomplete.status !== 'blocked'
+  if (resumable) {
     process.stdout.write(`\nTo continue this run:\n`)
-    process.stdout.write(`  cm --resume ${state.id}\n`)
+    process.stdout.write(`  ${hintStyle().resume(state.id)}\n`)
   }
 }

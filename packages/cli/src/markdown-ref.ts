@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { basename } from 'node:path'
 
 import { findGitRoot } from './project-root.js'
+import { stripAnsi } from './strip-ansi.js'
 
 export type MarkdownReferenceResult =
   | { ok: true; path: string; matched: boolean }
@@ -12,6 +13,9 @@ export function completeMarkdownReferences(input: string, cwd: string): string[]
 
   const query = input.slice(1).trim().toLowerCase()
   const matches = searchMarkdownFiles(query, cwd, 50)
+  // Paths are already ANSI-scrubbed by listMarkdownFiles; we still
+  // strip embedded newlines here because the rest of the shell treats
+  // suggestions as single-line tokens.
   return matches.slice(0, 50).map((path) => `@${path.replace(/[\n\r]/g, '')}`)
 }
 
@@ -77,24 +81,78 @@ export function formatMarkdownReferenceError(result: Extract<MarkdownReferenceRe
   return `${lines.join('\n')}\n`
 }
 
+/**
+ * Cache of `git ls-files` results keyed by resolved repo root. Built
+ * for the interactive shell, where every keystroke triggers a markdown
+ * lookup; in a large repo, shelling out to git on each keystroke makes
+ * raw-mode input feel sticky.
+ *
+ * Two invalidation paths:
+ *   - explicit: `invalidateMarkdownFilesCache(cwd)` after every
+ *     dispatched shell command, so plans created via /draft show up
+ *     immediately in the next /run @ suggestion list.
+ *   - TTL: cached entries expire after CACHE_TTL_MS, so external
+ *     edits (a plan saved in another editor while the shell is idle)
+ *     eventually appear without forcing the user to run a command
+ *     first. Short TTL keeps typing fast in the common case.
+ */
+interface CachedFiles {
+  files: string[]
+  expiresAt: number
+}
+
+const CACHE_TTL_MS = 2000
+const markdownFilesCache = new Map<string, CachedFiles>()
+
 export function listMarkdownFiles(cwd: string): string[] {
   const repoRoot = findGitRoot(cwd)
   if (!repoRoot) return []
+
+  const now = Date.now()
+  const cached = markdownFilesCache.get(repoRoot)
+  if (cached && cached.expiresAt > now) return cached.files
 
   const result = spawnSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
     cwd: repoRoot,
     encoding: 'buffer',
   })
-  if (result.status !== 0) return []
+  if (result.status !== 0) {
+    markdownFilesCache.set(repoRoot, { files: [], expiresAt: now + CACHE_TTL_MS })
+    return []
+  }
 
-  return result.stdout
+  // Strip ANSI and other terminal-control bytes from filenames at the
+  // source. git ls-files paths are bytes; in normal use they're plain
+  // text, but a malicious or accidentally-corrupt filename could
+  // contain escape sequences that move the cursor or clear the screen
+  // when displayed in pickers, error messages, or live suggestions.
+  // Scrubbing once here covers every consumer.
+  const files = result.stdout
     .toString('utf8')
     .split('\0')
     .filter(Boolean)
+    .map((path) => stripAnsi(path))
     .filter((path) => path.toLowerCase().endsWith('.md'))
     .filter((path) => !path.startsWith('.choirmaster/runs/'))
     .filter((path) => !path.startsWith('.choirmaster/prompts/'))
     .sort((a, b) => a.localeCompare(b))
+
+  markdownFilesCache.set(repoRoot, { files, expiresAt: now + CACHE_TTL_MS })
+  return files
+}
+
+/**
+ * Drop the markdown-files cache. The interactive shell calls this
+ * after every dispatched command so newly-written plans show up in
+ * the next round of suggestions. Tests use it to ensure isolation.
+ */
+export function invalidateMarkdownFilesCache(cwd?: string): void {
+  if (cwd === undefined) {
+    markdownFilesCache.clear()
+    return
+  }
+  const repoRoot = findGitRoot(cwd)
+  if (repoRoot) markdownFilesCache.delete(repoRoot)
 }
 
 function findMarkdownMatches(files: string[], query: string): string[] {

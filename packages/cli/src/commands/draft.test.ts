@@ -243,6 +243,23 @@ describe('draftCommand', () => {
     expect(code).toBe(0)
     expect(existsSync(join(root, '.choirmaster/plans/migrate-uber-cool-styles.md'))).toBe(true)
   })
+
+  it('emits shell-style next-step hints when _CHOIRMASTER_INTERACTIVE=1', async () => {
+    const root = tempRoot()
+    const previous = process.env._CHOIRMASTER_INTERACTIVE
+    process.env._CHOIRMASTER_INTERACTIVE = '1'
+    try {
+      const { code, stdout } = await captureDraft({ cwd: root, goal: 'add rate limits' })
+      expect(code).toBe(0)
+      expect(stdout).toContain('Edit it, then run: /run @add-rate-limits')
+      expect(stdout).not.toContain('choirmaster run ')
+      expect(stdout).not.toContain('Shortcut after shell completions')
+    }
+    finally {
+      if (previous === undefined) delete process.env._CHOIRMASTER_INTERACTIVE
+      else process.env._CHOIRMASTER_INTERACTIVE = previous
+    }
+  })
 })
 
 async function captureDraft(

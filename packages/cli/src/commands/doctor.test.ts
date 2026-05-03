@@ -115,6 +115,26 @@ describe('doctorCommand', () => {
     expect(code).toBe(1)
     expect(output).toContain('[fail] git repository: not inside a working git repository')
   })
+
+  it('colors labels when stdout is a TTY and NO_COLOR is unset', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'choir-doctor-no-git-'))
+    roots.push(root)
+
+    const previousIsTTY = process.stdout.isTTY
+    const previousNoColor = process.env.NO_COLOR
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true })
+    delete process.env.NO_COLOR
+    try {
+      const { output } = await captureDoctor(root)
+      // ANSI red for the [fail] label.
+      expect(output).toContain('\x1b[31m[fail]\x1b[39m')
+    }
+    finally {
+      Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: previousIsTTY })
+      if (previousNoColor === undefined) delete process.env.NO_COLOR
+      else process.env.NO_COLOR = previousNoColor
+    }
+  })
 })
 
 async function captureDoctor(

@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'no
 import { basename, dirname, extname, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 
+import { hintStyle, isShellHintStyle } from '../hint-style.js'
 import { resolveProjectRoot } from '../project-root.js'
 
 type AskQuestion = (prompt: string) => Promise<string>
@@ -88,9 +89,20 @@ export async function draftCommand(args: DraftCommandArgs = {}): Promise<number>
   if (!isInsideProject(outputPath, projectRoot)) {
     process.stdout.write(`Warning: draft was written outside the project root; @ shortcuts only match markdown files inside the repo.\n`)
   }
-  process.stdout.write(`Edit it, then run: choirmaster run ${relOutput}\n`)
-  if (isInsideProject(outputPath, projectRoot)) {
-    process.stdout.write(`Shortcut after shell completions: cm run @${slugify(title)}\n`)
+  const hint = hintStyle()
+  if (isShellHintStyle()) {
+    if (isInsideProject(outputPath, projectRoot)) {
+      process.stdout.write(`Edit it, then run: ${hint.runReference(`@${slugify(title)}`)}\n`)
+    }
+    else {
+      process.stdout.write(`Edit it, then run: ${hint.runReference(relOutput)}\n`)
+    }
+  }
+  else {
+    process.stdout.write(`Edit it, then run: ${hint.runReference(relOutput)}\n`)
+    if (isInsideProject(outputPath, projectRoot)) {
+      process.stdout.write(`Shortcut after shell completions: cm run @${slugify(title)}\n`)
+    }
   }
   process.stdout.write(`\n`)
   return 0

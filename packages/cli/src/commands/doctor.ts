@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { currentBranch, git, type AgentRoles, type ProjectConfig, type ProjectPrompts } from '@choirmaster/core'
 import type { Agent } from '@choirmaster/core'
 
+import { colorize } from '../cli-color.js'
 import { loadManifest } from '../manifest.js'
 import { resolveProjectRoot } from '../project-root.js'
 
@@ -415,14 +416,9 @@ function printChecks(checks: DoctorCheck[]): void {
 }
 
 function label(status: CheckStatus): string {
-  switch (status) {
-    case 'ok':
-      return '[ok]'
-    case 'warn':
-      return '[warn]'
-    case 'fail':
-      return '[fail]'
-  }
+  const text = status === 'ok' ? '[ok]' : status === 'warn' ? '[warn]' : '[fail]'
+  const color = status === 'ok' ? 'green' : status === 'warn' ? 'yellow' : 'red'
+  return colorize(color, text)
 }
 
 function stringifyOutput(output: string | Buffer | undefined): string {

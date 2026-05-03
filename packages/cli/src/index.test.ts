@@ -104,7 +104,11 @@ describe('CLI completion dispatch', () => {
     expect(stdout).toContain('Task contract written for inspection. Run with: choirmaster run @example')
     expect(stdout).toContain('1 task(s) loaded from .choirmaster/tasks/example.tasks.json')
     expect(stdout).toContain('sandbox.setup failed: planned-contract-loaded')
-    expect(stdout).toContain('To continue this run:\n  cm --resume ')
+    // Blocked-only runs intentionally suppress the resume hint: cm --resume
+    // can't action a blocked task today (worktree already exists, no
+    // auto-reuse). The summary still flags the run as blocked.
+    expect(stdout).not.toContain('To continue this run:')
+    expect(stdout).not.toContain('cm --resume ')
   })
 
   it('does not guess a fuzzy @ reference in non-interactive execution', async () => {
@@ -124,6 +128,55 @@ describe('CLI completion dispatch', () => {
 
     expect(code).toBe(64)
     expect(stderr).toContain('Pass <plan.md>, pass an exact @reference, or run this command in an interactive terminal')
+  })
+
+  it('bare cm --resume <id> accepts run-options flags without rejecting them', async () => {
+    // Reviewer-flagged coverage gap: route.test.ts proves the shell path
+    // forwards --reuse-worktree, but the bare top-level `cm --resume`
+    // path was only tested for the missing-value error case. Here we
+    // confirm the flag-bearing form is parsed by the bare handler and
+    // the resume path is entered (which then errors with our hardened
+    // "run not found" message because the run id doesn't exist).
+    const root = setupPlanThenRunRepo()
+
+    const { code, stderr } = await captureMain(root, [
+      'node',
+      'cm',
+      '--resume',
+      'does-not-exist',
+      '--reuse-worktree',
+      '--continue-on-blocked',
+    ])
+
+    expect(code).toBe(1)
+    // The bare handler's flag plumbing reached runCommand which then
+    // applied the same path validation as the picker; the rejection
+    // message proves the dispatcher didn't trip on the flags.
+    expect(stderr).toContain('Run not found:')
+    expect(stderr).not.toContain('requires a value')
+    expect(stderr).not.toContain('unknown command')
+  })
+
+  it('switches resume + run hints to slash form under _CHOIRMASTER_INTERACTIVE=1', async () => {
+    const root = setupPlanThenRunRepo()
+
+    const previous = process.env._CHOIRMASTER_INTERACTIVE
+    process.env._CHOIRMASTER_INTERACTIVE = '1'
+    try {
+      const { code, stdout } = await captureMain(root, ['node', 'cm', 'run', '@example'])
+      expect(code).toBe(2)
+      expect(stdout).toContain('Phases: Planning -> Implementing -> Gates -> Reviewing -> Committing')
+      expect(stdout).toContain('Plan generated: 1 task(s) -> .choirmaster/tasks/example.tasks.json')
+      expect(stdout).toContain('Task contract written for inspection. Run with: /run @example')
+      // Blocked tasks can't resume; the hint stays suppressed in either form.
+      expect(stdout).not.toContain('To continue this run:')
+      expect(stdout).not.toContain('cm --resume ')
+      expect(stdout).not.toContain('/resume ')
+    }
+    finally {
+      if (previous === undefined) delete process.env._CHOIRMASTER_INTERACTIVE
+      else process.env._CHOIRMASTER_INTERACTIVE = previous
+    }
   })
 })
 

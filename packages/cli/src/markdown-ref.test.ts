@@ -3,16 +3,26 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { completeMarkdownReferences, formatMarkdownReferenceError, resolveMarkdownReference } from './markdown-ref.js'
+import {
+  completeMarkdownReferences,
+  formatMarkdownReferenceError,
+  invalidateMarkdownFilesCache,
+  resolveMarkdownReference,
+} from './markdown-ref.js'
 
 const roots: string[] = []
+
+beforeEach(() => {
+  invalidateMarkdownFilesCache()
+})
 
 afterEach(() => {
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true })
   }
+  invalidateMarkdownFilesCache()
 })
 
 describe('resolveMarkdownReference', () => {
@@ -242,6 +252,74 @@ describe('resolveMarkdownReference', () => {
     })
 
     expect(completeMarkdownReferences('docs', root)).toEqual([])
+  })
+})
+
+describe('markdown file cache', () => {
+  it('returns stale results within the TTL until invalidated', () => {
+    const root = setupRepo({
+      files: { 'a.md': '# A\n' },
+      commit: true,
+    })
+    expect(completeMarkdownReferences('@a', root)).toEqual(['@a.md'])
+
+    // Add a new markdown file. Within the TTL the cached list does
+    // not include it.
+    writeFileSync(join(root, 'b.md'), '# B\n')
+    expect(completeMarkdownReferences('@b', root)).toEqual([])
+
+    // Invalidating the cache makes the next call rescan.
+    invalidateMarkdownFilesCache(root)
+    expect(completeMarkdownReferences('@b', root)).toEqual(['@b.md'])
+  })
+
+  it('respects the TTL: an expired entry is rebuilt without explicit invalidation', () => {
+    const realDateNow = Date.now
+    let now = 1_000_000
+    Date.now = () => now
+    try {
+      const root = setupRepo({
+        files: { 'a.md': '# A\n' },
+        commit: true,
+      })
+      expect(completeMarkdownReferences('@a', root)).toEqual(['@a.md'])
+
+      // Add a new file and advance "time" past the TTL window.
+      writeFileSync(join(root, 'b.md'), '# B\n')
+      now += 10_000
+
+      // No explicit invalidation; the TTL alone should make the cache
+      // rebuild and pick up the new file.
+      expect(completeMarkdownReferences('@b', root)).toEqual(['@b.md'])
+    }
+    finally {
+      Date.now = realDateNow
+    }
+  })
+
+  it('strips ANSI escape sequences from filenames at the source', () => {
+    const root = setupRepo({
+      files: {
+        // The CSI sequence here would clear the screen if rendered as-is.
+        // The cache layer must scrub it before any consumer can see it.
+        'evil\x1b[2Jname.md': '# Evil\n',
+      },
+      commit: true,
+    })
+    const matches = completeMarkdownReferences('@evil', root)
+    expect(matches).toEqual(['@evilname.md'])
+    expect(matches[0]).not.toContain('\x1b')
+  })
+
+  it('clears all entries when invalidated without an argument', () => {
+    const rootA = setupRepo({ files: { 'doc.md': '# A\n' }, commit: true })
+    const rootB = setupRepo({ files: { 'doc.md': '# B\n' }, commit: true })
+    completeMarkdownReferences('@doc', rootA)
+    completeMarkdownReferences('@doc', rootB)
+    invalidateMarkdownFilesCache()
+    // After global clear, both should still resolve correctly (rescan).
+    expect(completeMarkdownReferences('@doc', rootA)).toEqual(['@doc.md'])
+    expect(completeMarkdownReferences('@doc', rootB)).toEqual(['@doc.md'])
   })
 })
 
