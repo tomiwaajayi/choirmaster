@@ -81,11 +81,13 @@ export function validateRunPath(projectRoot: string, runId: string): RunPathVali
     return { ok: false, reason: 'unsafe run id (cannot start with a dot)' }
   }
   if (!SAFE_RUN_ID.test(runId)) {
-    // Strip before echoing in case the id carries terminal-control bytes.
-    return {
-      ok: false,
-      reason: `unsafe run id: ${stripAnsi(runId).slice(0, 40)}`,
-    }
+    // Echo the offending id back to the user, but scrub it to one safe
+    // line first. stripAnsi clears CSI/OSC/ESC and most control bytes
+    // but intentionally preserves \n and \t for readability of normal
+    // text; for an *id* echo, those are layout-shaping characters that
+    // can still mess up stderr framing, so drop them too.
+    const safeId = stripAnsi(runId).replace(/[\r\n\t\v\f]/g, '').slice(0, 40)
+    return { ok: false, reason: `unsafe run id: ${safeId}` }
   }
 
   const runDir = join(projectRoot, '.choirmaster/runs', runId)

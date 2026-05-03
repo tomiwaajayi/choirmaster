@@ -225,9 +225,11 @@ describe('validateRunPath', () => {
       const result = validateRunPath(root, id)
       expect(result.ok).toBe(false)
       if (!result.ok) {
-        // The reason itself must not contain raw ESC bytes either.
-        expect(result.reason).not.toContain('\x1b')
-        expect(result.reason).not.toContain('\x00')
+        // The echoed reason must be a single safe line: no ESC, no NUL,
+        // and no layout-shaping bytes that would let the offending id
+        // re-shape stderr output via newlines or tabs.
+        expect(result.reason).not.toMatch(/[\x00-\x08\x0a-\x1f\x7f]/)
+        expect(result.reason).not.toContain('\t')
       }
     }
   })
