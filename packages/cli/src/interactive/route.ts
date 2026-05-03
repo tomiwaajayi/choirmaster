@@ -13,6 +13,8 @@
 import type { MarkdownPickerResult } from '../markdown-picker.js'
 import { pickMarkdownFile } from '../markdown-picker.js'
 import { resolveProjectRoot } from '../project-root.js'
+import type { RunPickerResult } from '../run-picker.js'
+import { pickRunArtifact } from '../run-picker.js'
 
 import { findShellCommand } from './commands.js'
 import { parseInteractiveLine } from './parser.js'
@@ -33,7 +35,10 @@ export type ShellAction =
 
 export interface ShellRouteDeps {
   theme: Theme
+  /** Picker for /plan: markdown only. */
   pickMarkdown?: (cwd: string, title: string) => Promise<MarkdownPickerResult>
+  /** Picker for /run: tasks.json + markdown grouped. */
+  pickRunTarget?: (cwd: string, title: string) => Promise<RunPickerResult>
   pickResume?: (runs: ResumableRun[], theme: Theme) => Promise<ResumePickerResult>
   listRuns?: (cwd: string) => ResumableRun[]
 }
@@ -54,8 +59,11 @@ export async function resolveShellLine(
   if (command.name === '/help') return { kind: 'help' }
   if (command.name === '/exit') return { kind: 'exit' }
 
-  if (command.name === '/run' || command.name === '/plan') {
-    return resolveRunOrPlan(command.name, parsed.args, cwd, deps)
+  if (command.name === '/run') {
+    return resolveRun(parsed.args, cwd, deps)
+  }
+  if (command.name === '/plan') {
+    return resolvePlan(parsed.args, cwd, deps)
   }
   if (command.name === '/resume') {
     return resolveResume(parsed.args, cwd, deps)
@@ -66,25 +74,39 @@ export async function resolveShellLine(
   return { kind: 'dispatch', argv }
 }
 
-async function resolveRunOrPlan(
-  command: '/run' | '/plan',
+async function resolveRun(
   args: string[],
   cwd: string,
   deps: ShellRouteDeps,
 ): Promise<ShellAction> {
   if (findPositional(args)) {
-    return { kind: 'dispatch', argv: [command === '/run' ? 'run' : 'plan', ...args] }
+    return { kind: 'dispatch', argv: ['run', ...args] }
   }
-  const picker = deps.pickMarkdown ?? defaultPickMarkdown
-  const picked = await picker(
-    cwd,
-    command === '/run' ? 'Select a markdown plan to run' : 'Select a markdown plan to compile',
-  )
+  // /run with no positional opens the run picker, which surfaces both
+  // generated task contracts (`*.tasks.json`) and markdown plans. The
+  // dispatcher's behavior depends purely on the file extension: a
+  // .tasks.json runs as-is; a .md plans-then-runs.
+  const picker = deps.pickRunTarget ?? defaultPickRunTarget
+  const picked = await picker(cwd, 'Select a run target')
   if (!picked.ok) return { kind: 'cancelled', message: picked.message }
-  return {
-    kind: 'dispatch',
-    argv: [command === '/run' ? 'run' : 'plan', picked.path, ...args],
+  return { kind: 'dispatch', argv: ['run', picked.path, ...args] }
+}
+
+async function resolvePlan(
+  args: string[],
+  cwd: string,
+  deps: ShellRouteDeps,
+): Promise<ShellAction> {
+  if (findPositional(args)) {
+    return { kind: 'dispatch', argv: ['plan', ...args] }
   }
+  // /plan operates on markdown plans. The picker stays markdown-only;
+  // selecting a tasks.json here would be a no-op (you can't re-plan a
+  // contract).
+  const picker = deps.pickMarkdown ?? defaultPickMarkdown
+  const picked = await picker(cwd, 'Select a markdown plan to compile')
+  if (!picked.ok) return { kind: 'cancelled', message: picked.message }
+  return { kind: 'dispatch', argv: ['plan', picked.path, ...args] }
 }
 
 async function resolveResume(
@@ -120,6 +142,10 @@ async function resolveResume(
 
 async function defaultPickMarkdown(cwd: string, title: string): Promise<MarkdownPickerResult> {
   return pickMarkdownFile({ cwd, title })
+}
+
+async function defaultPickRunTarget(cwd: string, title: string): Promise<RunPickerResult> {
+  return pickRunArtifact({ cwd, title })
 }
 
 /**

@@ -17,6 +17,7 @@ import { stdout as defaultOutput } from 'node:process'
 
 import { pushInteractiveHintScope } from '../hint-style.js'
 import { invalidateMarkdownFilesCache } from '../markdown-ref.js'
+import { invalidateTasksFilesCache } from '../tasks-files.js'
 
 import { resetPendingInputBuffer, readLineWithSuggestions } from './input.js'
 import { parseInteractiveLine } from './parser.js'
@@ -92,9 +93,11 @@ export async function interactiveCommand(args: InteractiveCommandArgs): Promise<
         const message = err instanceof Error ? err.message : String(err)
         output.write(theme.red(`Command failed: ${message}`) + '\n')
       }
-      // /draft and /plan can create new markdown files; invalidate the
-      // cached file list so the next /run @ shows the new plan.
+      // /draft and /plan can create new markdown files and tasks.json
+      // files respectively; invalidate both caches so the next /run @
+      // sees fresh state.
       invalidateMarkdownFilesCache(cwd)
+      invalidateTasksFilesCache(cwd)
       output.write('\n')
 
       // Refresh the context line so dirty/resumable counts update

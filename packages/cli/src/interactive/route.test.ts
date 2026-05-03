@@ -67,20 +67,54 @@ describe('resolveShellLine', () => {
     expect((await resolveShellLine('/quit', '.', { theme })).kind).toBe('exit')
   })
 
-  it('opens the markdown picker for /run with no arg and uses the chosen path', async () => {
+  it('opens the run picker for /run with no arg, dispatching the chosen target', async () => {
     let pickerArgs: { cwd: string; title: string } | null = null
     const result = await resolveShellLine('/run', 'cwd-x', {
+      theme,
+      pickRunTarget: async (cwd, title) => {
+        pickerArgs = { cwd, title }
+        return { ok: true, path: '.choirmaster/tasks/example.tasks.json', kind: 'tasks' }
+      },
+    })
+    expect(result).toEqual({
+      kind: 'dispatch',
+      argv: ['run', '.choirmaster/tasks/example.tasks.json'],
+    })
+    expect(pickerArgs).toEqual({ cwd: 'cwd-x', title: 'Select a run target' })
+  })
+
+  it('routes a markdown choice from the /run picker into plan-then-run', async () => {
+    const result = await resolveShellLine('/run', '.', {
+      theme,
+      pickRunTarget: async () => ({ ok: true, path: 'docs/example.md', kind: 'markdown' }),
+    })
+    // The dispatcher's plan-then-run behavior keys off the .md extension,
+    // so the route just hands the path through.
+    expect(result).toEqual({ kind: 'dispatch', argv: ['run', 'docs/example.md'] })
+  })
+
+  it('opens the markdown picker for /plan (markdown only)', async () => {
+    let pickerArgs: { cwd: string; title: string } | null = null
+    const result = await resolveShellLine('/plan', 'cwd-x', {
       theme,
       pickMarkdown: async (cwd, title) => {
         pickerArgs = { cwd, title }
         return { ok: true, path: 'docs/example.md' }
       },
     })
-    expect(result).toEqual({ kind: 'dispatch', argv: ['run', 'docs/example.md'] })
-    expect(pickerArgs).toEqual({ cwd: 'cwd-x', title: 'Select a markdown plan to run' })
+    expect(result).toEqual({ kind: 'dispatch', argv: ['plan', 'docs/example.md'] })
+    expect(pickerArgs).toEqual({ cwd: 'cwd-x', title: 'Select a markdown plan to compile' })
   })
 
-  it('returns cancelled when the markdown picker is dismissed', async () => {
+  it('returns cancelled when the picker is dismissed (run side)', async () => {
+    const result = await resolveShellLine('/run', '.', {
+      theme,
+      pickRunTarget: async () => ({ ok: false, code: 130, message: 'Selection cancelled.' }),
+    })
+    expect(result).toEqual({ kind: 'cancelled', message: 'Selection cancelled.' })
+  })
+
+  it('returns cancelled when the markdown picker is dismissed (plan side)', async () => {
     const result = await resolveShellLine('/plan', '.', {
       theme,
       pickMarkdown: async () => ({ ok: false, code: 130, message: 'Selection cancelled.' }),

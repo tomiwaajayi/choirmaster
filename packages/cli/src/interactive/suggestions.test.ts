@@ -56,11 +56,27 @@ describe('computeSuggestions', () => {
     expect(computeSuggestions('/run /h', 7, process.cwd())).toBeNull()
   })
 
-  it('opens markdown suggestions inside /run after @', () => {
+  it('opens run-target suggestions inside /run after @ (tasks.json on top, markdown after)', () => {
     const root = setupRepo({
       '.choirmaster/plans/example.md': '# Example\n',
+      '.choirmaster/tasks/example.tasks.json': '[]\n',
     })
     const result = computeSuggestions('/run @ex', 8, root)
+    expect(result?.kind).toBe('run-target')
+    // tasks.json is surfaced first because it's the deliberate /run target;
+    // markdown shows up below as the re-plan-then-run option.
+    expect(result?.items.map((s) => s.value)).toEqual([
+      '@.choirmaster/tasks/example.tasks.json',
+      '@.choirmaster/plans/example.md',
+    ])
+  })
+
+  it('keeps /plan @-suggestions markdown-only (you can\'t re-plan a contract)', () => {
+    const root = setupRepo({
+      '.choirmaster/plans/example.md': '# Example\n',
+      '.choirmaster/tasks/example.tasks.json': '[]\n',
+    })
+    const result = computeSuggestions('/plan @ex', 9, root)
     expect(result?.kind).toBe('markdown')
     expect(result?.items.map((s) => s.value)).toEqual(['@.choirmaster/plans/example.md'])
   })

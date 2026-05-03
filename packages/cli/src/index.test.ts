@@ -101,7 +101,10 @@ describe('CLI completion dispatch', () => {
 
     expect(code).toBe(2)
     expect(stdout).toContain('Plan generated: 1 task(s) -> .choirmaster/tasks/example.tasks.json')
-    expect(stdout).toContain('Task contract written for inspection. Run with: choirmaster run @example')
+    // The plan output now offers two honest next-steps; we just confirm the
+    // run-as-planned line appears (the in-progress run-then-fail flow happens
+    // immediately after, so the hint is followed by the actual run output).
+    expect(stdout).toContain('Run as planned:  choirmaster run .choirmaster/tasks/example.tasks.json')
     expect(stdout).toContain('1 task(s) loaded from .choirmaster/tasks/example.tasks.json')
     expect(stdout).toContain('sandbox.setup failed: planned-contract-loaded')
     // Blocked-only runs intentionally suppress the resume hint: cm --resume
@@ -167,7 +170,9 @@ describe('CLI completion dispatch', () => {
       expect(code).toBe(2)
       expect(stdout).toContain('Phases: Planning -> Implementing -> Gates -> Reviewing -> Committing')
       expect(stdout).toContain('Plan generated: 1 task(s) -> .choirmaster/tasks/example.tasks.json')
-      expect(stdout).toContain('Task contract written for inspection. Run with: /run @example')
+      // Slash-form next-steps under shell hint style.
+      expect(stdout).toContain('Run as planned:  /run .choirmaster/tasks/example.tasks.json')
+      expect(stdout).toContain('Re-plan and run: /run @example')
       // Blocked tasks can't resume; the hint stays suppressed in either form.
       expect(stdout).not.toContain('To continue this run:')
       expect(stdout).not.toContain('cm --resume ')

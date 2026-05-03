@@ -4,9 +4,14 @@
 
 ChoirMaster is a local CLI for developers and small teams who want to use AI coding agents on real codebases without losing the day to scope drift, broken gates, mystery edits, or unrecoverable runs.
 
-The happy path is markdown-first: you write a plan, run `choirmaster run <plan.md>`, and ChoirMaster turns it into a validated task contract before executing it. Each task then moves through implementer → deterministic gates (typecheck / test / audit) → reviewer → commit → branch policy, all in isolated git worktrees.
+The happy path is markdown-first: you write a plan in markdown, ChoirMaster compiles it into a validated task contract (`*.tasks.json`), and the runtime executes that contract. Each task then moves through implementer → deterministic gates (typecheck / test / audit) → reviewer → commit → branch policy, all in isolated git worktrees.
 
-The generated `*.tasks.json` file is still there, readable, and safe to inspect when you run `choirmaster plan`. It is the execution contract, not the normal user-facing surface.
+Two valid workflows from the same authoring surface:
+
+- **Casual:** `choirmaster run <plan.md>` plans and runs in one step.
+- **Careful:** `choirmaster plan <plan.md>` compiles and stops; review the generated `.tasks.json`; then `choirmaster run <path/to/.tasks.json>` runs the inspected contract verbatim, no re-planning.
+
+Both are first-class. The careful flow exists because reviewing before execution is the whole point of having a separate `plan` command: `/plan` produces a contract, `/run` executes one.
 
 The agents do the work. ChoirMaster owns the loop, the gates, the worktrees, and the merges.
 
@@ -27,7 +32,7 @@ Solo developers, indie hackers, and small teams running scoped docs work, tests,
 
 ## What you get out of the box
 
-- **Markdown-first planning.** `choirmaster run <plan.md>` plans and runs in one flow. `choirmaster plan <plan.md>` stops after generating the task contract so you can review it first.
+- **Markdown-first planning, contract-first execution.** `choirmaster run <plan.md>` plans and runs in one flow. `choirmaster plan <plan.md>` stops after generating the task contract so you can review it; `choirmaster run <path/to/.tasks.json>` then runs the contract verbatim without re-planning.
 - **Polished interactive shell.** Run `cm` with no args to enter a ChoirMaster-owned shell with live `/` and `@` suggestions, first-class pickers for plans and resumable runs, a status header showing repo, branch, base, dirty state, and resumable count, and shell-native `/resume <run-id>` hints when a run pauses inside the shell. No shell setup required.
 - **Built-in markdown picker.** Run `cm run` or `cm plan` with no path and ChoirMaster opens its own searchable markdown picker. No shell setup required.
 - **Live markdown completions.** `cm completions <shell>` installs optional shell glue for zsh, bash, fish, PowerShell, and Nushell so `cm run @exa<Tab>` can suggest markdown files while you type. Without completion, use the built-in picker, an explicit path, or an exact `@` reference.
@@ -106,7 +111,7 @@ cm
 The shell opens with a status header (repo, branch, manifest base, dirty state, resumable run count) and a `cm>` prompt. Suggestions are live, not Tab-only:
 
 - Type `/` to see the command list. Filter with more characters: `/r` narrows to `/run` and `/resume`.
-- Type `@` inside `/run` or `/plan` to see matching markdown plans as you type. (`/draft` takes a free-form goal, not a plan reference, so it does not show `@` suggestions.)
+- Type `@` inside `/run` to see matching task contracts (`*.tasks.json`) at the top of the list and markdown plans below; both are valid `/run` targets but they behave differently (see below). `/plan` only suggests markdown plans, since you compile from markdown. `/draft` takes a free-form goal and shows no `@` suggestions.
 - Up/Down moves through suggestions, Tab inserts the highlighted one, Enter executes the line, Esc dismisses the suggestion list.
 
 Slash commands:
@@ -114,14 +119,16 @@ Slash commands:
 ```text
 cm> /draft --interactive add email sharing to galleries
 cm> /plan                                # opens the markdown picker
-cm> /run @example
+cm> /run @example                        # picks the freshest .tasks.json named example, or the .md
 cm> /resume                              # opens the resumable-run picker
 cm> /doctor
 cm> /help
 cm> /exit
 ```
 
-`/run` and `/plan` with no path open the built-in markdown picker. `/resume` with no id opens a picker over runs that paused cleanly (capacity hit, interrupted mid-task, never started); blocked runs are excluded because the runtime can't auto-reuse their worktree without an explicit reset (planned). Inside the shell, capacity-paused runs print `/resume <run-id>` so you can continue without leaving. Ctrl-C while a run is in flight kills the whole process (shell included) and prints the outside form `cm --resume <run-id>` since you'll be relaunching `cm` anyway.
+`/run <plan.md>` re-plans before running. `/run <tasks.json>` runs the inspected contract as-is. With no positional, `/run` opens a unified picker that lists `.tasks.json` first (newest at top) and markdown plans below; each row's `[tasks]` or `[plan]` tag tells you whether selecting it will re-plan.
+
+`/plan` with no path opens the markdown picker. `/resume` with no id opens a picker over runs that paused cleanly (capacity hit, interrupted mid-task, never started); blocked runs are excluded because the runtime can't auto-reuse their worktree without an explicit reset (planned). Inside the shell, capacity-paused runs print `/resume <run-id>` so you can continue without leaving. Ctrl-C while a run is in flight kills the whole process (shell included) and prints the outside form `cm --resume <run-id>` since you'll be relaunching `cm` anyway.
 
 ### Shell Completions
 

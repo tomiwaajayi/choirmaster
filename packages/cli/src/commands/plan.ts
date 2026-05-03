@@ -98,11 +98,19 @@ export async function planCommand(args: PlanCommandArgs): Promise<number> {
     return 2
   }
 
+  const tasksRel = shortPath(result.outputPath, projectRoot)
   process.stdout.write(
-    `\nPlan generated: ${result.tasksGenerated} task(s) -> ${shortPath(result.outputPath, projectRoot)}\n`,
+    `\nPlan generated: ${result.tasksGenerated} task(s) -> ${tasksRel}\n`,
   )
-  const runReference = args.planFile.startsWith('@') ? args.planFile : planFile
-  process.stdout.write(`Task contract written for inspection. Run with: ${hintStyle().runReference(runReference)}\n\n`)
+  // Two honest next-steps. The first runs the contract you just
+  // generated; the second re-plans before running and is appropriate
+  // when you want fresh planning rather than the inspected output.
+  const planRunReference = args.planFile.startsWith('@') ? args.planFile : planFile
+  const hint = hintStyle()
+  process.stdout.write(`\nNext:\n`)
+  process.stdout.write(`  Review:          ${tasksRel}\n`)
+  process.stdout.write(`  Run as planned:  ${hint.runReference(tasksRel)}\n`)
+  process.stdout.write(`  Re-plan and run: ${hint.runReference(planRunReference)}\n\n`)
   return 0
 }
 

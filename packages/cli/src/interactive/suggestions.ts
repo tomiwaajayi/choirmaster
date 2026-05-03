@@ -8,10 +8,11 @@
  */
 
 import { completeMarkdownReferences } from '../markdown-ref.js'
+import { completeTasksJsonReferences } from '../tasks-files.js'
 
 import { SHELL_COMMANDS } from './commands.js'
 
-export type SuggestionKind = 'slash' | 'markdown'
+export type SuggestionKind = 'slash' | 'markdown' | 'run-target'
 
 export interface Suggestion {
   /** What gets inserted into the line when the user accepts. */
@@ -74,20 +75,39 @@ export function computeSuggestions(
     }
   }
 
-  // Markdown suggestions: only valid arg of /run and /plan. /draft
-  // takes a free-form goal string and a `--from <path>` flag that
-  // doesn't resolve @-references; suggesting markdown there would
-  // insert tokens the draft command can't consume.
+  // @-suggestions vary by command:
+  //
+  // - /plan operates on markdown plans and only on markdown.
+  // - /run operates on the *thing being executed*. The primary
+  //   target is a generated tasks.json (the contract `/plan` produces
+  //   for review); markdown is the secondary target for the impatient
+  //   plan-then-run flow. Surface tasks.json first so a user who just
+  //   ran `/plan` and types `/run @` sees their fresh contract on top.
+  // - /draft takes a free-form goal string and a `--from <path>` flag
+  //   that doesn't resolve @-references; suggesting anything for
+  //   /draft would insert tokens the draft command can't consume.
   const firstToken = (trimmedLine.split(/\s+/)[0] ?? '').toLowerCase()
-  const allowsMarkdown = firstToken === '/run' || firstToken === '/plan'
-  if (!allowsMarkdown) return null
-
-  return {
-    kind: 'markdown',
-    token: here.token,
-    tokenStart: here.start,
-    items: completeMarkdownReferences(here.token, cwd).map((value) => ({ value })),
+  if (firstToken === '/plan') {
+    return {
+      kind: 'markdown',
+      token: here.token,
+      tokenStart: here.start,
+      items: completeMarkdownReferences(here.token, cwd).map((value) => ({ value })),
+    }
   }
+  if (firstToken === '/run') {
+    const tasks = completeTasksJsonReferences(here.token, cwd)
+      .map((value) => ({ value, hint: 'task contract' }))
+    const markdown = completeMarkdownReferences(here.token, cwd)
+      .map((value) => ({ value, hint: 'plan (re-plans before running)' }))
+    return {
+      kind: 'run-target',
+      token: here.token,
+      tokenStart: here.start,
+      items: [...tasks, ...markdown],
+    }
+  }
+  return null
 }
 
 export function filterSlashCommands(prefix: string): Suggestion[] {
