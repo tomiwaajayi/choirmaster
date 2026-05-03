@@ -129,54 +129,83 @@ export async function runCommand(args: RunCommandArgs): Promise<number> {
   const tasks = state.tasks
 
   const ctx = { projectRoot, runDir, logsDir, config }
+  const uninstallResumeSignalHandler = installResumeSignalHandler(state, runDir)
 
-  let halted = false
-  const blockedIds = new Set<string>()
-  for (const task of tasks) {
-    if (task.status === 'completed') continue
+  try {
+    let halted = false
+    const blockedIds = new Set<string>()
+    for (const task of tasks) {
+      if (task.status === 'completed') continue
 
-    // Skip tasks whose declared dependencies blocked. With
-    // --continue-on-blocked the loop keeps running, but a task can't
-    // meaningfully execute when its prereqs failed.
-    if (task.depends_on) {
-      const unmet = task.depends_on.filter((id) => blockedIds.has(id))
-      if (unmet.length > 0) {
-        task.status = 'blocked'
-        task.blocked_reason = `Skipped: dependency blocked: ${unmet.join(', ')}`
-        blockedIds.add(task.id)
-        process.stdout.write(`\n=== ${task.id}: skipped (deps blocked: ${unmet.join(', ')}) ===\n`)
-        saveState(runDir, state)
-        continue
+      // Skip tasks whose declared dependencies blocked. With
+      // --continue-on-blocked the loop keeps running, but a task can't
+      // meaningfully execute when its prereqs failed.
+      if (task.depends_on) {
+        const unmet = task.depends_on.filter((id) => blockedIds.has(id))
+        if (unmet.length > 0) {
+          task.status = 'blocked'
+          task.blocked_reason = `Skipped: dependency blocked: ${unmet.join(', ')}`
+          blockedIds.add(task.id)
+          process.stdout.write(`\n=== ${task.id}: skipped (deps blocked: ${unmet.join(', ')}) ===\n`)
+          saveState(runDir, state)
+          continue
+        }
+      }
+
+      process.stdout.write(`\n=== ${task.id}: ${task.title} ===\n`)
+      await runTask(ctx, state, task, {
+        allowReuseWorktree: args.reuseWorktree ?? false,
+        skipAutoMerge: args.skipAutoMerge ?? false,
+      })
+      if (task.status === 'blocked') blockedIds.add(task.id)
+      if (task.status === 'waiting_for_capacity') {
+        halted = true
+        break
+      }
+      if (task.status === 'blocked' && !args.continueOnBlocked) {
+        halted = true
+        break
       }
     }
 
-    process.stdout.write(`\n=== ${task.id}: ${task.title} ===\n`)
-    await runTask(ctx, state, task, {
-      allowReuseWorktree: args.reuseWorktree ?? false,
-      skipAutoMerge: args.skipAutoMerge ?? false,
-    })
-    if (task.status === 'blocked') blockedIds.add(task.id)
-    if (task.status === 'waiting_for_capacity') {
-      halted = true
-      break
+    printSummary(state, halted)
+    state.current_task = null
+    saveState(runDir, state)
+
+    // Non-zero exit on any non-success state. CI needs to see capacity
+    // pauses as failures even though they're recoverable.
+    const blocked = state.tasks.filter((t) => t.status === 'blocked').length
+    const waiting = state.tasks.filter((t) => t.status === 'waiting_for_capacity').length
+    if (blocked > 0) return 2
+    if (waiting > 0) return 3
+    return 0
+  }
+  finally {
+    uninstallResumeSignalHandler()
+  }
+}
+
+function installResumeSignalHandler(state: RunState, runDir: string): () => void {
+  const handler = (signal: NodeJS.Signals): void => {
+    try {
+      saveState(runDir, state)
     }
-    if (task.status === 'blocked' && !args.continueOnBlocked) {
-      halted = true
-      break
+    catch {
+      // The process is already exiting; the best recovery signal is the run id.
     }
+    process.stdout.write(`\nChoirMaster interrupted (${signal}).\n`)
+    process.stdout.write('To continue this run:\n')
+    process.stdout.write(`  cm --resume ${state.id}\n`)
+    process.exit(signal === 'SIGINT' ? 130 : 143)
   }
 
-  printSummary(state, halted)
-  state.current_task = null
-  saveState(runDir, state)
+  process.once('SIGINT', handler)
+  process.once('SIGTERM', handler)
 
-  // Non-zero exit on any non-success state. CI needs to see capacity
-  // pauses as failures even though they're recoverable.
-  const blocked = state.tasks.filter((t) => t.status === 'blocked').length
-  const waiting = state.tasks.filter((t) => t.status === 'waiting_for_capacity').length
-  if (blocked > 0) return 2
-  if (waiting > 0) return 3
-  return 0
+  return () => {
+    process.off('SIGINT', handler)
+    process.off('SIGTERM', handler)
+  }
 }
 
 function makeRunId(): string {
@@ -220,5 +249,11 @@ function printSummary(state: RunState, halted: boolean): void {
       const sha = t.commit ? t.commit.slice(0, 8) : '?'
       process.stdout.write(`  ${t.id}: ${sha} on ${t.branch}\n`)
     }
+  }
+
+  const unfinished = state.tasks.some((t) => t.status !== 'completed')
+  if (unfinished) {
+    process.stdout.write(`\nTo continue this run:\n`)
+    process.stdout.write(`  cm --resume ${state.id}\n`)
   }
 }

@@ -70,11 +70,13 @@ describe('CLI completion dispatch', () => {
     const plan = await captureMain(root, ['node', 'cm', 'plan', '--output', '--force', 'plan.md'])
     const doctor = await captureMain(root, ['node', 'cm', 'doctor', '--cwd', '--skip-network'])
     const run = await captureMain(root, ['node', 'cm', 'run', '--resume', '--no-auto-merge'])
+    const topLevelResume = await captureMain(root, ['node', 'cm', '--resume'])
 
     expect(draft).toMatchObject({ code: 64, stderr: '--from requires a value.\n' })
     expect(plan).toMatchObject({ code: 64, stderr: '--output requires a value.\n' })
     expect(doctor).toMatchObject({ code: 64, stderr: '--cwd requires a value.\n' })
     expect(run).toMatchObject({ code: 64, stderr: '--resume requires a value.\n' })
+    expect(topLevelResume).toMatchObject({ code: 64, stderr: '--resume requires a value.\n' })
   })
 
   it('supports -- as end-of-options for draft goals and positional inputs', async () => {
@@ -102,6 +104,7 @@ describe('CLI completion dispatch', () => {
     expect(stdout).toContain('Task contract written for inspection. Run with: choirmaster run @example')
     expect(stdout).toContain('1 task(s) loaded from .choirmaster/tasks/example.tasks.json')
     expect(stdout).toContain('sandbox.setup failed: planned-contract-loaded')
+    expect(stdout).toContain('To continue this run:\n  cm --resume ')
   })
 
   it('does not guess a fuzzy @ reference in non-interactive execution', async () => {

@@ -28,6 +28,7 @@ Solo developers, indie hackers, and small teams running scoped docs work, tests,
 ## What you get out of the box
 
 - **Markdown-first planning.** `choirmaster run <plan.md>` plans and runs in one flow. `choirmaster plan <plan.md>` stops after generating the task contract so you can review it first.
+- **Interactive `cm` prompt.** Run `cm` with no args to open a ChoirMaster-owned prompt with `/draft`, `/plan`, `/run`, `/resume`, `/doctor`, and `@` markdown suggestions. No shell setup required.
 - **Built-in markdown picker.** Run `cm run` or `cm plan` with no path and ChoirMaster opens its own searchable markdown picker. No shell setup required.
 - **Live markdown completions.** `cm completions <shell>` installs optional shell glue for zsh, bash, fish, PowerShell, and Nushell so `cm run @exa<Tab>` can suggest markdown files while you type. Without completion, use the built-in picker, an explicit path, or an exact `@` reference.
 - **Typed task contracts.** Each generated `*.tasks.json` declares branches, worktrees, allowed and forbidden paths, gates, dependencies, retry limits, and definitions of done. The runtime validates the whole file before any task starts.
@@ -37,7 +38,7 @@ Solo developers, indie hackers, and small teams running scoped docs work, tests,
 - **Deterministic gates.** Typecheck, test, audit scripts run after every implementer turn. Failures route back to the implementer with the failure summary; the reviewer never sees broken code.
 - **Sandbox prepare hook.** Fresh worktrees can run setup once before any agent turn, e.g. `pnpm install --frozen-lockfile`, so real project gates have dependencies available.
 - **Setup diagnostics.** `choirmaster doctor` checks the repo, manifest, branch, prompts, agents, gates, sandbox, gitignore, and Anthropic DNS before you spend a model turn.
-- **Recoverable everywhere.** Hit Claude's rate limit mid-run? The orchestrator pauses cleanly and resumes from the same phase on the next run. Killed the process? `choirmaster run --resume <run-id>` picks up where it left off.
+- **Recoverable everywhere.** Hit Claude's rate limit mid-run? The orchestrator pauses cleanly and resumes from the same phase on the next run. Blocked, capacity-paused, or interrupted runs print `cm --resume <run-id>` so you can continue from the same session state.
 - **Configurable branch policy.** Completed tasks can merge into the base branch, fast-forward the base, or stay on task branches for manual review.
 - **Per-task git worktrees.** Tasks never touch your main checkout. Inspect any task's branch independently.
 - **One package.** The CLI, runtime, Claude adapter, and public types ship as `choirmaster`.
@@ -93,6 +94,26 @@ yarn choirmaster --help
 ```
 
 You also need the `claude` CLI installed and authenticated. The bundled Claude adapter shells out to it.
+
+## Interactive Mode
+
+Run `cm` with no args in a terminal to open the ChoirMaster prompt:
+
+```bash
+cm
+```
+
+Inside the prompt, slash commands are owned by ChoirMaster:
+
+```text
+cm> /draft --interactive add email sharing to galleries
+cm> /plan
+cm> /run @example
+cm> /resume 2026-05-02T07-52-44-736-fl0b
+cm> /doctor
+```
+
+Use `/run` or `/plan` with no path to open the built-in markdown picker. Type `@` inside `/run` or `/plan` and press Tab for ChoirMaster-owned markdown suggestions, independent of your shell.
 
 ### Shell Completions
 
@@ -156,6 +177,9 @@ choirmaster doctor
 # skip DNS checks when offline or behind restricted network policy
 choirmaster doctor --skip-network
 
+# open the interactive prompt with / commands and @ markdown suggestions
+cm
+
 # plan-then-run from a markdown plan: the planner agent compiles it
 # into a validated tasks file, the runtime executes it
 choirmaster run
@@ -170,7 +194,7 @@ choirmaster run .choirmaster/plans/example.md
 choirmaster plan @example
 
 # resume a paused or interrupted run
-choirmaster run --resume <run-id>
+cm --resume <run-id>
 
 # skip blocked tasks instead of halting
 choirmaster run .choirmaster/plans/example.md --continue-on-blocked

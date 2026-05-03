@@ -67,6 +67,7 @@ export async function initCommand(args: InitCommandArgs = {}): Promise<number> {
   process.stdout.write(`  4. Check your setup:\n`)
   process.stdout.write(`       choirmaster doctor\n`)
   process.stdout.write(`  5. Draft your own markdown plan, or try the example end-to-end. Either:\n`)
+  process.stdout.write(`       cm                                                   # open interactive mode\n`)
   process.stdout.write(`       choirmaster draft --interactive "describe the change you want"\n`)
   process.stdout.write(`       choirmaster draft "describe the change you want"        # quick editable scaffold\n`)
   process.stdout.write(`       choirmaster run                                       # open the built-in markdown picker\n`)

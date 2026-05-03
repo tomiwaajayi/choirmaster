@@ -24,6 +24,7 @@ import { draftCommand } from './commands/draft.js'
 import { initCommand } from './commands/init.js'
 import { defaultTasksOutputPath, planCommand } from './commands/plan.js'
 import { runCommand } from './commands/run.js'
+import { interactiveCommand } from './interactive.js'
 import { completeMarkdownReferences, formatMarkdownReferenceError, resolveMarkdownReference } from './markdown-ref.js'
 import { pickMarkdownFile } from './markdown-picker.js'
 import { resolveProjectRoot } from './project-root.js'
@@ -55,12 +56,14 @@ Usage:
   cm <command> [options]
 
 Commands:
+  (no command)                  Open ChoirMaster interactive mode
   doctor                         Check repo, manifest, agents, gates, and network
   draft [goal...]                Create an editable markdown plan
   init [--force | -f]           Scaffold .choirmaster/ in the current repo
   plan [plan.md|@query]         Decompose a markdown plan into a task contract
   run [plan.md|@query]          Plan-then-run markdown
   run --resume <run-id>         Resume a paused or interrupted run
+  --resume <run-id>             Resume a paused or interrupted run
   completions <zsh|bash|fish|powershell|nushell>
                                 Print shell completion script
 
@@ -105,7 +108,17 @@ Pre-alpha. https://github.com/tomiwaajayi/choirmaster
 export async function main(argv: string[]): Promise<number> {
   const args = argv.slice(2)
 
-  if (args.length === 0 || args.includes('-h') || args.includes('--help')) {
+  if (args.length === 0) {
+    if (process.stdin.isTTY && process.stdout.isTTY) {
+      return interactiveCommand({
+        dispatch: (dispatchArgs) => main(['node', 'cm', ...dispatchArgs]),
+      })
+    }
+    process.stdout.write(HELP)
+    return 0
+  }
+
+  if (args.includes('-h') || args.includes('--help')) {
     process.stdout.write(HELP)
     return 0
   }
@@ -129,6 +142,15 @@ export async function main(argv: string[]): Promise<number> {
     return initCommand({
       force: args.includes('--force') || args.includes('-f'),
     })
+  }
+
+  if (command === '--resume') {
+    const runId = args[1]
+    if (!runId || runId.startsWith('-')) {
+      process.stderr.write('--resume requires a value.\n')
+      return 64
+    }
+    return runCommand({ resumeRunId: runId })
   }
 
   if (command === 'doctor') {

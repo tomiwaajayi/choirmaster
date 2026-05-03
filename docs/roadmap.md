@@ -22,6 +22,7 @@ The markdown plan is the human authoring surface. It can live anywhere in the re
 
 - Single-package install: global CLI (`npm install -g choirmaster`) or project dev dependency (`npm install -D choirmaster` with `npx choirmaster`).
 - `choirmaster` and `cm` both work as first-class command names.
+- `cm` with no args opens a persistent interactive prompt with `/draft`, `/plan`, `/run`, `/resume`, `/doctor`, and ChoirMaster-owned `@` suggestions.
 - Markdown-first: `choirmaster run <plan.md>` is the primary path; task contracts are generated artifacts for inspection and advanced/debug workflows.
 - `choirmaster draft --interactive "goal"` asks concise terminal questions, then writes a reviewable markdown plan before any model turn.
 - `choirmaster draft "goal"` and `choirmaster draft --from notes.md` still create quick editable markdown plan skeletons.
@@ -107,6 +108,7 @@ These are no longer roadmap items, but they shape the remaining work:
 - Worktree reuse checks branch identity.
 - `READY` reviews with populated issues are treated as blocked.
 - `choirmaster run --resume <run-id>` exists and rejects ambiguous task-file plus resume usage.
+- `cm --resume <run-id>` is a top-level resume shortcut, and blocked, paused, or interrupted runs print the exact command to continue.
 - Implementer attempts distinguish started from completed work via `completed_attempts`.
 - Reviewer iterations distinguish started from completed work via `completed_review_iterations`.
 - Retry caps can come from task overrides, manifest limits, or built-in defaults.
@@ -116,6 +118,7 @@ These are no longer roadmap items, but they shape the remaining work:
 - `*.tasks.json` validation runs before any task starts, with cycle detection and unsafe-path rejection.
 - Markdown planner: `choirmaster plan <plan.md>` and `choirmaster run <plan.md>` decompose a markdown plan into a validated tasks file. Mutation guard refuses any planner edit outside the unique planner scratch path, including changes to gitignored files matching `forbiddenPaths`.
 - Markdown drafting: `choirmaster draft --interactive "goal"` asks concise terminal questions and writes a reviewable markdown plan; `choirmaster draft "goal"` and `choirmaster draft --from notes.md` remain fast editable scaffolds.
+- Interactive shell: `cm` opens a persistent prompt with slash commands, and Tab completion inside that prompt can suggest markdown references without relying on the user's shell.
 - Built-in markdown picker: `cm run` and `cm plan` can ask the user to choose a markdown file inside the CLI, avoiding reliance on shell-specific autocomplete setup.
 - Markdown shorthand and completions: generated shell completion scripts provide live fuzzy `@query` suggestions for zsh, bash, fish, PowerShell, and Nushell; command execution only accepts exact `@` references so ChoirMaster never guesses the wrong file.
 - Init branch defaults: `choirmaster init` initializes `manifest.base` from the current branch and escapes unusual branch names safely; detached or non-git directories fall back to `main`.
@@ -148,6 +151,7 @@ Goal: make the markdown-first CLI surface excellent for real local work.
 Core commands:
 
 - `choirmaster init`
+- `cm` for the persistent interactive prompt
 - `choirmaster doctor`
 - `choirmaster draft --interactive "goal"`
 - `choirmaster draft "goal"` and `choirmaster draft --from notes.md`
