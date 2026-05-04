@@ -66,6 +66,20 @@ describe('renderHelp', () => {
     expect(help).toContain('/run @example')
     expect(help).toContain('cm --resume')
   })
+
+  it('surfaces run modifiers with one-line explanations', () => {
+    const help = renderHelp(theme)
+    expect(help).toContain('Run modifiers')
+    expect(help).toContain('--continue-on-blocked')
+    expect(help).toContain('--reuse-worktree')
+    expect(help).toContain('--no-auto-merge')
+  })
+
+  it('explains the Enter-vs-Tab convention for / and @ suggestions', () => {
+    const help = renderHelp(theme)
+    expect(help).toMatch(/Enter on a \/ suggestion accepts AND runs/)
+    expect(help).toMatch(/Enter on an @ suggestion accepts only/)
+  })
 })
 
 describe('renderResumableList', () => {

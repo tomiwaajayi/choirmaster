@@ -96,9 +96,17 @@ export function computeSuggestions(
     }
   }
   if (firstToken === '/run') {
+    // Cap per source so neither side overflows the suggestion panel.
+    // The render layer caps the visible list at 8 anyway; sending
+    // hundreds of strings just to truncate them is wasteful and would
+    // produce a misleading "+N more..." indicator the user can't
+    // actually scroll through.
+    const PER_SOURCE_CAP = 6
     const tasks = completeTasksJsonReferences(here.token, cwd)
+      .slice(0, PER_SOURCE_CAP)
       .map((value) => ({ value, hint: 'task contract' }))
     const markdown = completeMarkdownReferences(here.token, cwd)
+      .slice(0, PER_SOURCE_CAP)
       .map((value) => ({ value, hint: 'plan (re-plans before running)' }))
     return {
       kind: 'run-target',

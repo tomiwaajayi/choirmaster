@@ -86,7 +86,7 @@ async function resolveRun(
   // generated task contracts (`*.tasks.json`) and markdown plans. The
   // dispatcher's behavior depends purely on the file extension: a
   // .tasks.json runs as-is; a .md plans-then-runs.
-  const picker = deps.pickRunTarget ?? defaultPickRunTarget
+  const picker = deps.pickRunTarget ?? realPickRunTarget
   const picked = await picker(cwd, 'Select a run target')
   if (!picked.ok) return { kind: 'cancelled', message: picked.message }
   return { kind: 'dispatch', argv: ['run', picked.path, ...args] }
@@ -103,7 +103,7 @@ async function resolvePlan(
   // /plan operates on markdown plans. The picker stays markdown-only;
   // selecting a tasks.json here would be a no-op (you can't re-plan a
   // contract).
-  const picker = deps.pickMarkdown ?? defaultPickMarkdown
+  const picker = deps.pickMarkdown ?? realPickMarkdown
   const picked = await picker(cwd, 'Select a markdown plan to compile')
   if (!picked.ok) return { kind: 'cancelled', message: picked.message }
   return { kind: 'dispatch', argv: ['plan', picked.path, ...args] }
@@ -149,11 +149,15 @@ async function resolveResume(
   return { kind: 'dispatch', argv: ['run', '--resume', picked.run.id, ...args, ...extra] }
 }
 
-async function defaultPickMarkdown(cwd: string, title: string): Promise<MarkdownPickerResult> {
+// `realPick*` are the production picker implementations the route
+// layer falls back to when no test-injected picker is supplied. The
+// "real" naming distinguishes them from caller-supplied stubs without
+// implying a fallback semantics they don't have.
+async function realPickMarkdown(cwd: string, title: string): Promise<MarkdownPickerResult> {
   return pickMarkdownFile({ cwd, title })
 }
 
-async function defaultPickRunTarget(cwd: string, title: string): Promise<RunPickerResult> {
+async function realPickRunTarget(cwd: string, title: string): Promise<RunPickerResult> {
   return pickRunArtifact({ cwd, title })
 }
 

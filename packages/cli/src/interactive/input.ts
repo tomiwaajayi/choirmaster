@@ -215,14 +215,34 @@ export async function readLineWithSuggestions(options: ReadLineOptions): Promise
       }
 
       if (key.name === 'return') {
-        // If the suggestion panel is open and the highlight differs from
-        // what the user typed, accept the suggestion before executing.
-        // This matches the convention every suggestion-driven shell uses
-        // (VS Code, fzf, line editors): Enter both completes and runs.
+        // Enter behavior depends on what the panel is showing:
+        //
+        // - Slash suggestions (e.g. typed `/r` with /run highlighted):
+        //   accept AND execute. The user only ever picks a slash command
+        //   to run it; there's no second step where they'd add flags
+        //   between the slash and Enter.
+        //
+        // - Markdown / run-target suggestions (e.g. `/run @example`):
+        //   accept ONLY. The user often wants to add flags
+        //   (--continue-on-blocked, --reuse-worktree, --output ...)
+        //   AFTER picking the file. Auto-executing here would force them
+        //   to remember the flags before navigating to the file. They
+        //   press Enter again on the (now-complete) line to execute.
+        //
+        // The accept-then-no-execute branch is also short-circuited when
+        // the highlighted value matches what's already typed exactly:
+        // there's nothing to accept, so we just execute.
         if (suggestions && suggestions.items.length > 0) {
           const chosen = suggestions.items[highlighted]
+          // Capture the kind BEFORE accept; acceptSuggestion()
+          // recomputes suggestions and may swap `suggestions` underneath.
+          const kindBeforeAccept = suggestions.kind
           if (chosen && chosen.value !== suggestions.token) {
             acceptSuggestion()
+            if (kindBeforeAccept !== 'slash') {
+              // File-reference accept; let the user keep typing flags.
+              return
+            }
           }
         }
         finish({ kind: 'line', line })

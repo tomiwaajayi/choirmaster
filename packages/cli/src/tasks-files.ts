@@ -59,7 +59,17 @@ export function searchTasksFiles(queryInput: string, cwd: string, limit = 50): T
   const query = queryInput.replace(/^@/, '').trim().toLowerCase()
   const files = listTasksFiles(cwd)
   if (!query) return files.slice(0, limit)
-  return files.filter((file) => matchesQuery(file.path, query)).slice(0, limit)
+  // Filter then sort by match-score (lower wins). Within the same
+  // score bucket, the upstream order from listTasksFiles (newest
+  // first by mtime) is preserved by Array.prototype.sort stability,
+  // so a fresh-but-weakly-matching file doesn't push above an older
+  // strong match.
+  return files
+    .map((file) => ({ file, score: matchScore(file.path, query) }))
+    .filter((entry) => entry.score !== null)
+    .sort((a, b) => a.score! - b.score!)
+    .map((entry) => entry.file)
+    .slice(0, limit)
 }
 
 /**
@@ -117,13 +127,31 @@ function walkTasksDir(dir: string, repoRoot: string, out: TasksFile[]): void {
   }
 }
 
-function matchesQuery(path: string, query: string): boolean {
+/**
+ * Lower score wins. Tiers, in order of preference:
+ *   0   stem (basename minus `.tasks.json`) equals query exactly
+ *  10   stem starts with query
+ *  20   basename starts with query (covers `.tasks.json` typed in full)
+ *  30   path starts with query
+ *  40   stem contains query
+ *  50   path contains query
+ * null   no match
+ *
+ * Length is added as a tiebreaker so shorter paths sort first within
+ * a tier (matches markdown-ref's scoring conventions).
+ */
+function matchScore(path: string, query: string): number | null {
   const lowerPath = path.toLowerCase()
-  // Match against the full repo-relative path AND the basename without
-  // the .tasks.json suffix, so `/run @example` finds
-  // `.choirmaster/tasks/example.tasks.json`.
-  if (lowerPath.includes(query)) return true
   const basename = lowerPath.split('/').pop() ?? ''
-  const stem = basename.endsWith('.tasks.json') ? basename.slice(0, -'.tasks.json'.length) : basename
-  return stem.includes(query)
+  const stem = basename.endsWith('.tasks.json')
+    ? basename.slice(0, -'.tasks.json'.length)
+    : basename
+
+  if (stem === query) return 0
+  if (stem.startsWith(query)) return 10 + stem.length
+  if (basename.startsWith(query)) return 20 + basename.length
+  if (lowerPath.startsWith(query)) return 30 + lowerPath.length
+  if (stem.includes(query)) return 40 + stem.indexOf(query) + stem.length
+  if (lowerPath.includes(query)) return 50 + lowerPath.indexOf(query) + lowerPath.length
+  return null
 }

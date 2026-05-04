@@ -221,7 +221,7 @@ function makeRunId(): string {
   return `${now}-${rand}`
 }
 
-function printSummary(state: RunState, halted: boolean): void {
+export function printSummary(state: RunState, halted: boolean): void {
   const counts: Record<string, number> = {
     completed: 0, blocked: 0, waiting_for_capacity: 0, pending: 0, in_progress: 0,
   }
@@ -259,15 +259,33 @@ function printSummary(state: RunState, halted: boolean): void {
   }
 
   // The runtime resumes by walking tasks in order, skipping only
-  // `completed`. If the first non-completed task is `blocked` we have
-  // no way to make forward progress on `cm --resume <id>` today (the
-  // worktree already exists and `allowReuse` only fires for waiting /
-  // in_progress). Suppress the resume hint in that case to avoid
-  // pointing the user at a command that will fail at sandbox setup.
+  // `completed`. Three cases for the resume hint:
+  //
+  //   1. firstIncomplete is waiting/in_progress/pending: bare resume
+  //      works as-is.
+  //   2. firstIncomplete is blocked but a later task is actionable:
+  //      mixed run. The runtime needs --continue-on-blocked to walk
+  //      past the blocked task, plus --reuse-worktree so sandbox.setup
+  //      doesn't fail on the existing worktree of the blocked task.
+  //   3. Every incomplete task is blocked: truly stuck. No hint
+  //      (waiting on a future `cm reset` command).
   const firstIncomplete = state.tasks.find((t) => t.status !== 'completed')
-  const resumable = firstIncomplete !== undefined && firstIncomplete.status !== 'blocked'
-  if (resumable) {
-    process.stdout.write(`\nTo continue this run:\n`)
-    process.stdout.write(`  ${hintStyle().resume(state.id)}\n`)
+  const actionableLater = state.tasks.find((t) =>
+    t.status === 'waiting_for_capacity' || t.status === 'in_progress' || t.status === 'pending',
+  )
+  if (firstIncomplete && actionableLater) {
+    const hint = hintStyle()
+    if (firstIncomplete.status === 'blocked') {
+      // Mixed run: surface the run id AND the flags the runtime needs.
+      // From inside `cm`, `/resume` (no id) opens the picker which
+      // auto-attaches these flags; from outside, the user has to type
+      // them, so spell them out.
+      process.stdout.write(`\nTo continue this run (skipping blocked ${firstIncomplete.id}):\n`)
+      process.stdout.write(`  ${hint.resume(state.id)} --continue-on-blocked --reuse-worktree\n`)
+    }
+    else {
+      process.stdout.write(`\nTo continue this run:\n`)
+      process.stdout.write(`  ${hint.resume(state.id)}\n`)
+    }
   }
 }

@@ -42,6 +42,8 @@ interface PickerEntry {
   kind: RunArtifactKind
 }
 
+const TAG_LABELS = ['[tasks]', '[plan]'] as const
+
 export async function pickRunArtifact(options: RunPickerOptions): Promise<RunPickerResult> {
   const input = options.input ?? defaultInput
   const output = options.output ?? defaultOutput
@@ -66,7 +68,8 @@ export async function pickRunArtifact(options: RunPickerOptions): Promise<RunPic
     let query = (options.initialQuery ?? '').replace(/^@/, '')
     let selected = 0
     let renderedLines = 0
-    const title = options.title ?? 'Select a run target'
+    const title = options.title
+      ?? 'Select a run target  (task contracts run as planned; markdown plans re-plan first)'
 
     emitKeypressEvents(input)
     const hadRawMode = input.isRaw
@@ -101,17 +104,18 @@ export async function pickRunArtifact(options: RunPickerOptions): Promise<RunPic
       ]
 
       if (found.length === 0) {
-        lines.push('  No targets match. Keep typing, Backspace to edit, Esc to cancel.')
+        lines.push('  No targets match this query. Backspace to edit, Esc to cancel.')
+        lines.push('  (Enter does nothing while no row is highlighted.)')
       }
       else {
         lines.push('Use Up/Down to choose, Enter to select, Esc to cancel.')
-        lines.push('  task contracts run as planned; markdown plans re-plan first.')
         lines.push('')
+        const tagWidth = Math.max(...TAG_LABELS.map((t) => t.length))
         for (let i = 0; i < found.length; i += 1) {
           const entry = found[i]!
           const marker = i === selected ? '>' : ' '
-          const tag = entry.kind === 'tasks' ? '[tasks]' : '[plan] '
-          lines.push(`${marker} ${tag} ${entry.path}`)
+          const tag = (entry.kind === 'tasks' ? '[tasks]' : '[plan]').padEnd(tagWidth, ' ')
+          lines.push(`${marker} ${tag}  ${entry.path}`)
         }
       }
 
@@ -180,16 +184,15 @@ function hasAnyArtifacts(cwd: string): boolean {
   return listTasksFiles(cwd).length > 0 || listMarkdownFiles(cwd).length > 0
 }
 
-export function searchEntries(query: string, cwd: string, limit: number): PickerEntry[] {
-  // Tasks files first (sorted by mtime in listTasksFiles), then markdown
-  // (sorted by name). Within each group we cap at `limit` so a repo
-  // with many markdown files doesn't drown out the tasks group.
-  const tasks = searchTasksFiles(query, cwd, limit)
+function searchEntries(query: string, cwd: string, limit: number): PickerEntry[] {
+  // Tasks files first (sorted by score then mtime), then markdown
+  // below. Cap each source individually so the picker keeps both
+  // groups visible: a repo with 50 markdown plans shouldn't drown
+  // out a single tasks.json the user just generated, and vice-versa.
+  const perSource = Math.max(1, Math.ceil(limit / 2))
+  const tasks = searchTasksFiles(query, cwd, perSource)
     .map((t): PickerEntry => ({ path: t.path, kind: 'tasks' }))
-  const remaining = Math.max(0, limit - tasks.length)
-  const markdown = remaining === 0
-    ? []
-    : searchMarkdownFiles(query, cwd, remaining)
-        .map((path): PickerEntry => ({ path, kind: 'markdown' }))
-  return [...tasks, ...markdown]
+  const markdown = searchMarkdownFiles(query, cwd, perSource)
+    .map((path): PickerEntry => ({ path, kind: 'markdown' }))
+  return [...tasks, ...markdown].slice(0, limit)
 }

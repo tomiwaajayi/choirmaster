@@ -8,16 +8,49 @@
  * fire 'keypress' events synchronously.
  */
 
+import { spawnSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
+
+import { invalidateMarkdownFilesCache } from '../markdown-ref.js'
 
 import { applySuggestion, resetPendingInputBuffer, readLineWithSuggestions } from './input.js'
 import { makeTheme } from './theme.js'
 
+const tempRoots: string[] = []
+
 afterEach(() => {
   resetPendingInputBuffer()
+  invalidateMarkdownFilesCache()
+  for (const root of tempRoots.splice(0)) {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
+
+function setupTempRepo(files: Record<string, string> = {}): string {
+  const root = mkdtempSync(join(tmpdir(), 'choir-input-'))
+  tempRoots.push(root)
+  sh('git init -b main', root)
+  sh('git config user.email test@example.com', root)
+  sh('git config user.name "Test"', root)
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(root, path, '..'), { recursive: true })
+    writeFileSync(join(root, path), content)
+  }
+  sh('git add -A && git commit -m initial --allow-empty', root)
+  return root
+}
+
+function sh(command: string, cwd: string): void {
+  const result = spawnSync(command, { cwd, shell: true, encoding: 'utf8' })
+  if (result.status !== 0) {
+    throw new Error(`command failed: ${command}\n${result.stderr || result.stdout}`)
+  }
+}
 
 const KEYPRESS_INSTALLED = Symbol.for('choirmaster.keypressInstalled')
 
@@ -186,6 +219,47 @@ describe('readLineWithSuggestions', () => {
       input: input as unknown as NodeJS.ReadStream & { isTTY?: boolean },
       output: output as unknown as NodeJS.WriteStream & { isTTY?: boolean },
     })
+    input.type('/r')
+    input.press('', { name: 'return' })
+    expect(await promise).toEqual({ kind: 'line', line: '/run ' })
+  })
+
+  it('Enter on an @-suggestion accepts only; user can add flags before re-pressing Enter', async () => {
+    const root = setupTempRepo({
+      '.choirmaster/plans/example.md': '# Example\n',
+    })
+    const { input, output } = makePair()
+    const promise = readLineWithSuggestions({
+      prompt: 'cm> ',
+      cwd: root,
+      theme,
+      input: input as unknown as NodeJS.ReadStream & { isTTY?: boolean },
+      output: output as unknown as NodeJS.WriteStream & { isTTY?: boolean },
+    })
+    // /run @ex with example.md as the highlighted candidate.
+    input.type('/run @ex')
+    // First Enter: accept the suggestion. Should NOT execute.
+    input.press('', { name: 'return' })
+    // Now the line has @.choirmaster/plans/example.md and the cursor
+    // sits at the end. The user adds a flag, then a second Enter runs.
+    input.type(' --continue-on-blocked')
+    input.press('', { name: 'return' })
+    expect(await promise).toEqual({
+      kind: 'line',
+      line: '/run @.choirmaster/plans/example.md --continue-on-blocked',
+    })
+  })
+
+  it('Enter on a / suggestion still accepts AND runs (slash convenience)', async () => {
+    const { input, output } = makePair()
+    const promise = readLineWithSuggestions({
+      prompt: 'cm> ',
+      cwd: '.',
+      theme,
+      input: input as unknown as NodeJS.ReadStream & { isTTY?: boolean },
+      output: output as unknown as NodeJS.WriteStream & { isTTY?: boolean },
+    })
+    // /r → /run picked, single Enter completes-and-executes.
     input.type('/r')
     input.press('', { name: 'return' })
     expect(await promise).toEqual({ kind: 'line', line: '/run ' })
