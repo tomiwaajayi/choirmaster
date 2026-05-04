@@ -108,4 +108,18 @@ describe('printSummary', () => {
     expect(out).toContain('/resume run-test --continue-on-blocked --reuse-worktree')
     expect(out).not.toContain('cm --resume')
   })
+
+  it('lists every leading blocked task in the skip-blocked label', () => {
+    // The runtime walks past all of them with --continue-on-blocked;
+    // saying "skipping blocked TASK-02" alone would undercount.
+    const out = captureStdout(() => {
+      printSummary(makeState([
+        { id: 'TASK-01', status: 'completed' },
+        { id: 'TASK-02', status: 'blocked', blocked_reason: 'a' },
+        { id: 'TASK-03', status: 'blocked', blocked_reason: 'b' },
+        { id: 'TASK-04', status: 'pending' },
+      ]), true)
+    })
+    expect(out).toContain('skipping blocked task(s) TASK-02, TASK-03')
+  })
 })

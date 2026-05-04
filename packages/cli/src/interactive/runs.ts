@@ -203,17 +203,32 @@ function summarizeState(id: string, parsed: unknown, modifiedAt: number): Resuma
       // Truly stuck: every incomplete task is blocked. Nothing to resume.
       return null
     }
+    // Collect EVERY blocked task before the next actionable, not just
+    // the first. The runtime walks through them all on resume with
+    // --continue-on-blocked; the reason text should match.
+    const blockedIds: string[] = []
+    for (const task of tasks) {
+      if (task.status === 'completed') continue
+      if (task.status === 'blocked' && task.id) {
+        blockedIds.push(task.id)
+        continue
+      }
+      break
+    }
+    const reasonText = blockedIds.length === 1
+      ? `skip blocked ${blockedIds[0]} and continue`
+      : `skip blocked task(s) ${blockedIds.join(', ')} and continue`
     const status = pickerStatusOf(nextActionable.status)
     return {
       id: stripAnsi(id),
       status,
       currentTaskId: stripDisplay(nextActionable.id),
       currentTaskTitle: stripDisplay(nextActionable.title),
-      reason: stripDisplay(`skip blocked ${firstIncomplete.id ?? 'task'} and continue`),
+      reason: stripDisplay(reasonText),
       modifiedAt,
       startedAt: stripDisplay(state.started_at),
       skipBlocked: true,
-      blockingTaskId: stripDisplay(firstIncomplete.id),
+      blockingTaskId: stripDisplay(blockedIds[0]),
     }
   }
 

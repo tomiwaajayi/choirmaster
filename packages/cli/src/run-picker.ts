@@ -20,11 +20,6 @@ import { listTasksFiles, searchTasksFiles } from './tasks-files.js'
 
 export type RunArtifactKind = 'tasks' | 'markdown'
 
-export interface RunArtifactSelection {
-  path: string
-  kind: RunArtifactKind
-}
-
 export type RunPickerResult =
   | { ok: true; path: string; kind: RunArtifactKind }
   | { ok: false; code: number; message: string }
@@ -68,8 +63,12 @@ export async function pickRunArtifact(options: RunPickerOptions): Promise<RunPic
     let query = (options.initialQuery ?? '').replace(/^@/, '')
     let selected = 0
     let renderedLines = 0
-    const title = options.title
-      ?? 'Select a run target  (task contracts run as planned; markdown plans re-plan first)'
+    // Two-line title: keep the headline short (always fits on a 40-col
+    // narrow split), put the explanation below as a dim helper. The
+    // run-picker doesn't use the wrap-aware makeFrame yet, so a wrapped
+    // first line would leave residue across redraws.
+    const title = options.title ?? 'Select a run target'
+    const subtitle = '  (tasks: run as planned; plans: re-plan first)'
 
     emitKeypressEvents(input)
     const hadRawMode = input.isRaw
@@ -84,10 +83,14 @@ export async function pickRunArtifact(options: RunPickerOptions): Promise<RunPic
       output.write('\x1b[?25h')
     }
 
-    const matches = (): PickerEntry[] => {
-      const found = searchEntries(query, options.cwd, 10)
+    /** Pure: returns the current filtered list. No state mutation. */
+    const matches = (): PickerEntry[] => searchEntries(query, options.cwd, 10)
+
+    /** Clamp `selected` into the current matches range. Call after every
+     * keystroke that changes `query` or selection bounds.
+     */
+    const clampSelection = (found: PickerEntry[] = matches()): void => {
       if (selected >= found.length) selected = Math.max(0, found.length - 1)
-      return found
     }
 
     const rerender = (): void => {
@@ -96,16 +99,17 @@ export async function pickRunArtifact(options: RunPickerOptions): Promise<RunPic
       clearScreenDown(output)
 
       const found = matches()
+      clampSelection(found)
       const lines = [
         title,
+        subtitle,
         '',
         `Search: ${query}`,
         '',
       ]
 
       if (found.length === 0) {
-        lines.push('  No targets match this query. Backspace to edit, Esc to cancel.')
-        lines.push('  (Enter does nothing while no row is highlighted.)')
+        lines.push('  No targets match this query. Backspace to edit, Esc to cancel (Enter is a no-op while no row is highlighted).')
       }
       else {
         lines.push('Use Up/Down to choose, Enter to select, Esc to cancel.')
@@ -158,19 +162,22 @@ export async function pickRunArtifact(options: RunPickerOptions): Promise<RunPic
         return
       }
       if (key.name === 'down') {
-        selected = Math.min(matches().length - 1, selected + 1)
+        const found = matches()
+        selected = Math.min(found.length - 1, selected + 1)
         rerender()
         return
       }
       if (key.name === 'backspace') {
         query = query.slice(0, -1)
         selected = 0
+        clampSelection()
         rerender()
         return
       }
       if (str && !key.ctrl && str >= ' ') {
         query += str === '@' && query.length === 0 ? '' : str
         selected = 0
+        clampSelection()
         rerender()
       }
     }
@@ -189,6 +196,10 @@ function searchEntries(query: string, cwd: string, limit: number): PickerEntry[]
   // below. Cap each source individually so the picker keeps both
   // groups visible: a repo with 50 markdown plans shouldn't drown
   // out a single tasks.json the user just generated, and vice-versa.
+  //
+  // The trailing `slice(0, limit)` handles the odd-limit overflow
+  // case: with ceil(5/2) = 3 per source, we could end up with 6
+  // entries; the slice trims to the caller's exact cap.
   const perSource = Math.max(1, Math.ceil(limit / 2))
   const tasks = searchTasksFiles(query, cwd, perSource)
     .map((t): PickerEntry => ({ path: t.path, kind: 'tasks' }))

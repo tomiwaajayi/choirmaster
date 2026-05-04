@@ -114,6 +114,29 @@ describe('listResumableRuns', () => {
     expect(listResumableRuns(root)).toEqual([])
   })
 
+  it('reports every leading blocked task in the skip-blocked reason', () => {
+    // The runtime walks past ALL blocked tasks before the next
+    // actionable when --continue-on-blocked is set, so the picker's
+    // reason text must list every id, not just the first.
+    const root = mkdtempSync(join(tmpdir(), 'choir-runs-'))
+    roots.push(root)
+    writeRun(root, 'multi-blocked', {
+      tasks: [
+        { id: 'TASK-01', status: 'completed' },
+        { id: 'TASK-02', status: 'blocked', blocked_reason: 'gates' },
+        { id: 'TASK-03', status: 'blocked', blocked_reason: 'gates' },
+        { id: 'TASK-04', title: 'Next', status: 'pending' },
+      ],
+    })
+    const runs = listResumableRuns(root)
+    expect(runs).toHaveLength(1)
+    expect(runs[0]!.skipBlocked).toBe(true)
+    expect(runs[0]!.currentTaskId).toBe('TASK-04')
+    // Reason mentions BOTH blocked tasks, not just TASK-02.
+    expect(runs[0]!.reason).toContain('TASK-02')
+    expect(runs[0]!.reason).toContain('TASK-03')
+  })
+
   it('keeps a partially-blocked run when blocked tasks come AFTER the focus', () => {
     const root = mkdtempSync(join(tmpdir(), 'choir-runs-'))
     roots.push(root)

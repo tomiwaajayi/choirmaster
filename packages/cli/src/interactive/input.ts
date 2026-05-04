@@ -240,7 +240,17 @@ export async function readLineWithSuggestions(options: ReadLineOptions): Promise
           if (chosen && chosen.value !== suggestions.token) {
             acceptSuggestion()
             if (kindBeforeAccept !== 'slash') {
-              // File-reference accept; let the user keep typing flags.
+              // File-reference accept. Suppress the panel until the
+              // next keystroke clears the flag; otherwise recomputing
+              // suggestions against the just-accepted file
+              // re-opens the panel showing the file we just picked,
+              // which is visually confusing ("I selected this, why is
+              // it still in the list?"). Esc semantics, applied
+              // automatically.
+              suppressed = true
+              suggestions = null
+              highlighted = 0
+              rerender()
               return
             }
           }

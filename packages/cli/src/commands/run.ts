@@ -76,6 +76,29 @@ export async function runCommand(args: RunCommandArgs): Promise<number> {
       process.stderr.write(`Failed to load run state: ${(err as Error).message}\n`)
       return 1
     }
+
+    // Skip-blocked preflight: if the resume entry point is blocked
+    // and the user didn't pass --continue-on-blocked --reuse-worktree,
+    // the loop will halt at sandbox.setup. Surface a clear error
+    // pointing at the right command rather than failing silently
+    // halfway in. The shell's /resume picker auto-attaches these flags;
+    // this check covers `cm --resume <id>` from a plain terminal.
+    const firstIncomplete = state.tasks.find((t) => t.status !== 'completed')
+    const actionableLater = state.tasks.find((t) =>
+      t.status === 'waiting_for_capacity' || t.status === 'in_progress' || t.status === 'pending',
+    )
+    if (firstIncomplete?.status === 'blocked' && actionableLater
+      && !args.continueOnBlocked && !args.reuseWorktree) {
+      const blocked = collectLeadingBlockedIds(state)
+      const label = blocked.length === 1
+        ? `Blocked task (${blocked[0]}) is in front of pending work.`
+        : `Blocked tasks (${blocked.join(', ')}) are in front of pending work.`
+      process.stderr.write(`${label}\n`)
+      process.stderr.write(`Resume with --continue-on-blocked --reuse-worktree to skip past:\n`)
+      process.stderr.write(`  ${hintStyle().resume(runId)} --continue-on-blocked --reuse-worktree\n`)
+      return 1
+    }
+
     logsDir = resolve(runDir, 'logs')
     mkdirSync(logsDir, { recursive: true })
 
@@ -201,8 +224,16 @@ function installResumeSignalHandler(state: RunState, runDir: string): () => void
       // The process is already exiting; the best recovery signal is the run id.
     }
     process.stdout.write(`\nChoirMaster interrupted (${signal}).\n`)
-    process.stdout.write('To continue this run:\n')
-    process.stdout.write(`  cm --resume ${state.id}\n`)
+    // Mirror printSummary's hint logic: if the resumable starting
+    // point is blocked but later work is actionable, the bare resume
+    // command halts on sandbox.setup. Spell out the flags here too so
+    // a Ctrl-C recovery doesn't leave the user with a copy-pasteable
+    // command that fails on first try.
+    const hint = formatResumeHint(state)
+    if (hint) {
+      process.stdout.write('To continue this run:\n')
+      process.stdout.write(`  ${hint}\n`)
+    }
     process.exit(signal === 'SIGINT' ? 130 : 143)
   }
 
@@ -213,6 +244,30 @@ function installResumeSignalHandler(state: RunState, runDir: string): () => void
     process.off('SIGINT', handler)
     process.off('SIGTERM', handler)
   }
+}
+
+/**
+ * Build the "To continue this run" command for a given state. Returns
+ * null when the run isn't resumable (every incomplete task is blocked).
+ *
+ * Always uses the OUTSIDE-shell form (`cm --resume <id>`) regardless of
+ * whether `_CHOIRMASTER_INTERACTIVE` is set, because both call sites
+ * (SIGINT handler, printSummary) print at moments when the user has to
+ * relaunch `cm` afterward: SIGINT kills the entire process tree, and
+ * printSummary fires at the end of a non-interactive `cm run`. The
+ * shell-side picker auto-attaches the same flags via /resume.
+ */
+function formatResumeHint(state: RunState): string | null {
+  const firstIncomplete = state.tasks.find((t) => t.status !== 'completed')
+  const actionableLater = state.tasks.find((t) =>
+    t.status === 'waiting_for_capacity' || t.status === 'in_progress' || t.status === 'pending',
+  )
+  if (!firstIncomplete || !actionableLater) return null
+  const base = hintStyle().resume(state.id)
+  if (firstIncomplete.status === 'blocked') {
+    return `${base} --continue-on-blocked --reuse-worktree`
+  }
+  return base
 }
 
 function makeRunId(): string {
@@ -259,33 +314,43 @@ export function printSummary(state: RunState, halted: boolean): void {
   }
 
   // The runtime resumes by walking tasks in order, skipping only
-  // `completed`. Three cases for the resume hint:
-  //
-  //   1. firstIncomplete is waiting/in_progress/pending: bare resume
-  //      works as-is.
-  //   2. firstIncomplete is blocked but a later task is actionable:
-  //      mixed run. The runtime needs --continue-on-blocked to walk
-  //      past the blocked task, plus --reuse-worktree so sandbox.setup
-  //      doesn't fail on the existing worktree of the blocked task.
-  //   3. Every incomplete task is blocked: truly stuck. No hint
-  //      (waiting on a future `cm reset` command).
-  const firstIncomplete = state.tasks.find((t) => t.status !== 'completed')
-  const actionableLater = state.tasks.find((t) =>
-    t.status === 'waiting_for_capacity' || t.status === 'in_progress' || t.status === 'pending',
-  )
-  if (firstIncomplete && actionableLater) {
-    const hint = hintStyle()
-    if (firstIncomplete.status === 'blocked') {
-      // Mixed run: surface the run id AND the flags the runtime needs.
-      // From inside `cm`, `/resume` (no id) opens the picker which
-      // auto-attaches these flags; from outside, the user has to type
-      // them, so spell them out.
-      process.stdout.write(`\nTo continue this run (skipping blocked ${firstIncomplete.id}):\n`)
-      process.stdout.write(`  ${hint.resume(state.id)} --continue-on-blocked --reuse-worktree\n`)
+  // `completed`. The hint shape depends on whether the resume point
+  // is blocked + has actionable work behind it; `formatResumeHint`
+  // centralizes that decision so the SIGINT handler and the summary
+  // emit identical commands.
+  const hint = formatResumeHint(state)
+  if (hint) {
+    const firstIncomplete = state.tasks.find((t) => t.status !== 'completed')
+    if (firstIncomplete?.status === 'blocked') {
+      const blockedIds = collectLeadingBlockedIds(state)
+      const skipLabel = blockedIds.length === 1
+        ? `skipping blocked ${blockedIds[0]}`
+        : `skipping blocked task(s) ${blockedIds.join(', ')}`
+      process.stdout.write(`\nTo continue this run (${skipLabel}):\n`)
     }
     else {
       process.stdout.write(`\nTo continue this run:\n`)
-      process.stdout.write(`  ${hint.resume(state.id)}\n`)
     }
+    process.stdout.write(`  ${hint}\n`)
   }
+}
+
+/**
+ * Collect every blocked task that appears BEFORE the next actionable
+ * task in iteration order. The runtime walks them all on resume with
+ * --continue-on-blocked; surfacing every id in the hint avoids the
+ * "we said skip TASK-02 but actually skipped TASK-02 and TASK-03 too"
+ * undercounting issue.
+ */
+function collectLeadingBlockedIds(state: RunState): string[] {
+  const ids: string[] = []
+  for (const task of state.tasks) {
+    if (task.status === 'completed') continue
+    if (task.status === 'blocked') {
+      ids.push(task.id)
+      continue
+    }
+    break
+  }
+  return ids
 }

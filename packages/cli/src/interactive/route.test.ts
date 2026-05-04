@@ -89,6 +89,45 @@ describe('resolveShellLine', () => {
     })
   })
 
+  it('auto-attaches skip-blocked flags for typed /resume <mixed-id> from outside the picker', async () => {
+    // The picker path already attaches these flags. A user who types
+    // the id from memory should get the same behavior; otherwise their
+    // resume halts at sandbox.setup of the blocked task.
+    const result = await resolveShellLine('/resume mixed-id', '.', {
+      theme,
+      listRuns: () => [
+        {
+          id: 'mixed-id',
+          status: 'pending',
+          modifiedAt: 0,
+          skipBlocked: true,
+          blockingTaskId: 'TASK-02',
+        },
+      ],
+    })
+    expect(result).toEqual({
+      kind: 'dispatch',
+      argv: ['run', '--resume', 'mixed-id', '--continue-on-blocked', '--reuse-worktree'],
+    })
+  })
+
+  it('does not auto-attach skip-blocked flags for typed /resume on an ordinary run', async () => {
+    const result = await resolveShellLine('/resume normal-id', '.', {
+      theme,
+      listRuns: () => [
+        {
+          id: 'normal-id',
+          status: 'waiting_for_capacity',
+          modifiedAt: 0,
+        },
+      ],
+    })
+    expect(result).toEqual({
+      kind: 'dispatch',
+      argv: ['run', '--resume', 'normal-id'],
+    })
+  })
+
   it('keeps --reuse-worktree, --continue-on-blocked, --no-auto-merge attached to /resume', async () => {
     const result = await resolveShellLine(
       '/resume abc --reuse-worktree --continue-on-blocked',

@@ -53,9 +53,17 @@ export function renderHelp(theme: Theme): string {
   lines.push('')
   lines.push(theme.bold('Run modifiers (append to /run or /resume)'))
   lines.push('')
-  lines.push(`  ${theme.cyan('--continue-on-blocked'.padEnd(22))}  Skip past blocked tasks instead of halting.`)
-  lines.push(`  ${theme.cyan('--reuse-worktree'.padEnd(22))}  Reuse an existing worktree (needed when retrying a blocked task).`)
-  lines.push(`  ${theme.cyan('--no-auto-merge'.padEnd(22))}  Leave each task on its branch (skip the branch policy's merge).`)
+  const modifiers: ReadonlyArray<readonly [string, string]> = [
+    ['--continue-on-blocked', 'Skip past blocked tasks instead of halting.'],
+    ['--reuse-worktree', 'Reuse an existing worktree (needed when retrying a blocked task).'],
+    ['--no-auto-merge', "Leave each task on its branch (skip the branch policy's merge)."],
+  ]
+  // Pad the column to the longest flag + 1 so adding a new modifier
+  // doesn't silently misalign the descriptions.
+  const modPad = Math.max(...modifiers.map(([flag]) => flag.length)) + 1
+  for (const [flag, description] of modifiers) {
+    lines.push(`  ${theme.cyan(flag.padEnd(modPad))}  ${description}`)
+  }
   lines.push('')
   lines.push(theme.bold('Examples'))
   lines.push('')

@@ -105,12 +105,20 @@ export async function planCommand(args: PlanCommandArgs): Promise<number> {
   // Two honest next-steps. The first runs the contract you just
   // generated; the second re-plans before running and is appropriate
   // when you want fresh planning rather than the inspected output.
+  // Pad labels dynamically so adding/removing a row stays aligned.
   const planRunReference = args.planFile.startsWith('@') ? args.planFile : planFile
   const hint = hintStyle()
+  const rows: ReadonlyArray<readonly [string, string]> = [
+    ['Review:', tasksRel],
+    ['Run as planned:', hint.runReference(tasksRel)],
+    ['Re-plan and run:', hint.runReference(planRunReference)],
+  ]
+  const labelWidth = Math.max(...rows.map(([label]) => label.length))
   process.stdout.write(`\nNext:\n`)
-  process.stdout.write(`  Review:          ${tasksRel}\n`)
-  process.stdout.write(`  Run as planned:  ${hint.runReference(tasksRel)}\n`)
-  process.stdout.write(`  Re-plan and run: ${hint.runReference(planRunReference)}\n\n`)
+  for (const [label, value] of rows) {
+    process.stdout.write(`  ${label.padEnd(labelWidth)}  ${value}\n`)
+  }
+  process.stdout.write(`\n`)
   return 0
 }
 

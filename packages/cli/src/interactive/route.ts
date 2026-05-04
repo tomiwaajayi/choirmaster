@@ -121,7 +121,19 @@ async function resolveResume(
   if (findPositional(args)) {
     const id = findPositional(args)!
     const flags = args.filter((arg) => arg !== id)
-    return { kind: 'dispatch', argv: ['run', '--resume', id, ...flags] }
+    // Auto-attach skip-blocked flags for typed `/resume <id>` when the
+    // run is mixed (blocked task in front of pending work). Matches the
+    // picker path so a user who types the id from memory gets the same
+    // behavior as one who picks from the list. listResumableRuns
+    // already validates the path and computes skipBlocked from state.
+    const list = deps.listRuns ?? listResumableRuns
+    const found = list(resolveProjectRoot(cwd)).find((r) => r.id === id)
+    const extra: string[] = []
+    if (found?.skipBlocked) {
+      if (!flags.includes('--continue-on-blocked')) extra.push('--continue-on-blocked')
+      if (!flags.includes('--reuse-worktree')) extra.push('--reuse-worktree')
+    }
+    return { kind: 'dispatch', argv: ['run', '--resume', id, ...flags, ...extra] }
   }
 
   const list = deps.listRuns ?? listResumableRuns
