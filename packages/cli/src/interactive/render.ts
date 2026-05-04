@@ -105,7 +105,8 @@ export function renderResumableList(runs: ResumableRun[], theme: Theme): string 
     const run = runs[i]!
     const tag = describeRunStatus(run.status)
     const colorTag = run.status === 'waiting_for_capacity' ? theme.yellow(tag) : theme.dim(tag)
-    lines.push(`  ${i + 1}. ${run.id}  ${colorTag}`)
+    const skipTag = run.skipBlocked ? `  ${theme.yellow('[skip blocked]')}` : ''
+    lines.push(`  ${i + 1}. ${run.id}  ${colorTag}${skipTag}`)
     if (run.currentTaskId) {
       const title = run.currentTaskTitle ? `: ${run.currentTaskTitle}` : ''
       lines.push(`     ${theme.dim('task:')} ${run.currentTaskId}${title}`)

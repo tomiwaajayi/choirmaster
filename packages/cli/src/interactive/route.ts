@@ -136,8 +136,17 @@ async function resolveResume(
   const picker = deps.pickResume ?? ((rs, th) => defaultPickResumableRun({ runs: rs, theme: th }))
   const picked = await picker(runs, deps.theme)
   if (!picked.ok) return { kind: 'cancelled', message: picked.message }
-  // Carry forward any flags the user typed alongside `/resume`.
-  return { kind: 'dispatch', argv: ['run', '--resume', picked.run.id, ...args] }
+  // Carry forward any flags the user typed alongside `/resume`. When
+  // the chosen run is "skip-blocked" (a blocked task in front of
+  // pending work), auto-attach the flags the runtime needs to walk
+  // past the blocked task. Don't double-attach if the user already
+  // typed them.
+  const extra: string[] = []
+  if (picked.run.skipBlocked) {
+    if (!args.includes('--continue-on-blocked')) extra.push('--continue-on-blocked')
+    if (!args.includes('--reuse-worktree')) extra.push('--reuse-worktree')
+  }
+  return { kind: 'dispatch', argv: ['run', '--resume', picked.run.id, ...args, ...extra] }
 }
 
 async function defaultPickMarkdown(cwd: string, title: string): Promise<MarkdownPickerResult> {

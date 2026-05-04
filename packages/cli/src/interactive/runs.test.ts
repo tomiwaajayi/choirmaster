@@ -76,18 +76,39 @@ describe('listResumableRuns', () => {
     expect(listResumableRuns(root)).toEqual([])
   })
 
-  it('drops a run when its first non-completed task is blocked', () => {
-    // The runtime resume loop iterates tasks in order, skipping only
-    // completed. With [blocked, pending], runtime would re-enter the
-    // blocked task first and hit "worktree already exists" before ever
-    // reaching the pending task. Surfacing this run as resumable would
-    // mislead the user.
+  it('surfaces a mixed run as skip-blocked when pending work follows the blocked task', () => {
+    // The runtime can step past the blocked task with --continue-on-blocked
+    // --reuse-worktree, so the picker should expose this run with the
+    // skip-blocked marker. The route layer attaches the right flags on
+    // dispatch.
     const root = mkdtempSync(join(tmpdir(), 'choir-runs-'))
     roots.push(root)
     writeRun(root, 'blocked-then-pending', {
       tasks: [
-        { id: 'TASK-01', status: 'blocked', blocked_reason: 'gates failed' },
-        { id: 'TASK-02', title: 'Next', status: 'pending' },
+        { id: 'TASK-01', status: 'completed' },
+        { id: 'TASK-02', status: 'blocked', blocked_reason: 'gates failed' },
+        { id: 'TASK-03', title: 'Next actionable', status: 'pending' },
+      ],
+    })
+    const runs = listResumableRuns(root)
+    expect(runs).toHaveLength(1)
+    expect(runs[0]!.skipBlocked).toBe(true)
+    expect(runs[0]!.blockingTaskId).toBe('TASK-02')
+    expect(runs[0]!.currentTaskId).toBe('TASK-03')
+    expect(runs[0]!.status).toBe('pending')
+    expect(runs[0]!.reason).toContain('skip blocked TASK-02')
+  })
+
+  it('still drops a run when EVERY incomplete task is blocked', () => {
+    // No actionable work behind the block, so even --continue-on-blocked
+    // would just iterate through more blocks. Don't advertise it.
+    const root = mkdtempSync(join(tmpdir(), 'choir-runs-'))
+    roots.push(root)
+    writeRun(root, 'all-blocked-tail', {
+      tasks: [
+        { id: 'TASK-01', status: 'completed' },
+        { id: 'TASK-02', status: 'blocked', blocked_reason: 'gates failed' },
+        { id: 'TASK-03', status: 'blocked', blocked_reason: 'dep failed' },
       ],
     })
     expect(listResumableRuns(root)).toEqual([])

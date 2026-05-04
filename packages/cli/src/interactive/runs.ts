@@ -36,6 +36,16 @@ export interface ResumableRun {
   modifiedAt: number
   /** When the run started, if known. */
   startedAt?: string
+  /**
+   * True when the focus task lives BEHIND a blocked task in the
+   * runtime's iteration order. The shell signals this so the user
+   * sees it in the picker AND so the dispatcher can attach
+   * --continue-on-blocked --reuse-worktree (otherwise the runtime
+   * would halt on the blocked task with a "worktree exists" error).
+   */
+  skipBlocked?: boolean
+  /** Id of the blocked task that will be skipped, for display. */
+  blockingTaskId?: string
 }
 
 /**
@@ -174,22 +184,38 @@ function summarizeState(id: string, parsed: unknown, modifiedAt: number): Resuma
   if (tasks.length === 0) return null
 
   // The runtime resumes by iterating tasks in order, skipping only
-  // `completed`. So the actually-actioned task on `cm --resume` is the
-  // first non-completed task. Anchor the picker's focus on that task,
-  // not on a "best-status" search across the whole run; otherwise the
-  // picker can advertise TASK-02 (pending) as resumable while the
-  // runtime tries TASK-01 (blocked) first and halts before reaching
-  // TASK-02.
+  // `completed`. The "actually-actioned" task is therefore the first
+  // non-completed one. We anchor the picker's focus on that task so
+  // the advertisement matches what `cm --resume` will do.
   const firstIncomplete = tasks.find((task) => task.status !== 'completed')
   if (!firstIncomplete) return null
 
-  // Blocked needs a reset/retry path the CLI doesn't yet expose:
-  // the runtime only auto-reuses worktrees for waiting_for_capacity or
-  // in_progress, so a bare `cm --resume` against a run whose first
-  // non-completed task is blocked fails at sandbox setup. Drop those
-  // runs from the picker; they remain visible through `printSummary`
-  // at the end of the original run.
-  if (firstIncomplete.status === 'blocked') return null
+  // Mixed runs: firstIncomplete is blocked, but there's still useful
+  // work behind it (pending / waiting / in_progress). The runtime
+  // can step past the blocked task with --continue-on-blocked, but
+  // sandbox.setup still fails on the blocked task's worktree unless
+  // --reuse-worktree is also set. We surface these as "skipBlocked"
+  // and let the route layer attach both flags so the user gets to
+  // continue with TASK-03+ even when TASK-02 is wedged.
+  if (firstIncomplete.status === 'blocked') {
+    const nextActionable = tasks.find((task) => isPickerActionable(task.status))
+    if (!nextActionable) {
+      // Truly stuck: every incomplete task is blocked. Nothing to resume.
+      return null
+    }
+    const status = pickerStatusOf(nextActionable.status)
+    return {
+      id: stripAnsi(id),
+      status,
+      currentTaskId: stripDisplay(nextActionable.id),
+      currentTaskTitle: stripDisplay(nextActionable.title),
+      reason: stripDisplay(`skip blocked ${firstIncomplete.id ?? 'task'} and continue`),
+      modifiedAt,
+      startedAt: stripDisplay(state.started_at),
+      skipBlocked: true,
+      blockingTaskId: stripDisplay(firstIncomplete.id),
+    }
+  }
 
   let status: ResumableRunStatus
   let reason: string | undefined
@@ -204,16 +230,11 @@ function summarizeState(id: string, parsed: unknown, modifiedAt: number): Resuma
     reason = 'interrupted mid-task'
   }
   else {
-    // pending or any unrecognized status falls into the "not started" bucket.
     status = 'pending'
     reason = 'not started'
   }
 
   return {
-    // The id is already validated by `validateRunPath` against a strict
-    // allowlist before we get here, but scrub once more on the display
-    // boundary as defense-in-depth: belt + suspenders for the one
-    // value that flows directly into picker frames and resume hints.
     id: stripAnsi(id),
     status,
     currentTaskId: stripDisplay(firstIncomplete.id),
@@ -222,6 +243,18 @@ function summarizeState(id: string, parsed: unknown, modifiedAt: number): Resuma
     modifiedAt,
     startedAt: stripDisplay(state.started_at),
   }
+}
+
+function isPickerActionable(status: string | undefined): boolean {
+  return status === 'waiting_for_capacity'
+    || status === 'in_progress'
+    || status === 'pending'
+}
+
+function pickerStatusOf(taskStatus: string | undefined): ResumableRunStatus {
+  if (taskStatus === 'waiting_for_capacity') return 'waiting_for_capacity'
+  if (taskStatus === 'in_progress') return 'in_progress'
+  return 'pending'
 }
 
 function stripDisplay(value: string | undefined): string | undefined {

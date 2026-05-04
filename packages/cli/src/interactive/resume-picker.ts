@@ -69,7 +69,11 @@ export async function pickResumableRun(options: ResumePickerOptions): Promise<Re
         const colorTag = run.status === 'waiting_for_capacity' ? theme.yellow(tag) : theme.dim(tag)
         const marker = i === selected ? theme.cyan('>') : ' '
         const id = i === selected ? theme.cyan(run.id) : run.id
-        lines.push(`${marker} ${id}  ${colorTag}`)
+        // Visible "skip blocked" marker on the run header so the user
+        // knows selecting this row attaches --continue-on-blocked
+        // --reuse-worktree before dispatching.
+        const skipTag = run.skipBlocked ? `  ${theme.yellow('[skip blocked]')}` : ''
+        lines.push(`${marker} ${id}  ${colorTag}${skipTag}`)
         if (run.currentTaskId) {
           const title = run.currentTaskTitle ? `: ${run.currentTaskTitle}` : ''
           lines.push(`    ${theme.dim('task:')} ${run.currentTaskId}${title}`)

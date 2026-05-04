@@ -49,6 +49,46 @@ describe('resolveShellLine', () => {
     })
   })
 
+  it('auto-attaches --continue-on-blocked --reuse-worktree when the chosen run is skip-blocked', async () => {
+    const result = await resolveShellLine('/resume', '.', {
+      theme,
+      listRuns: () => [
+        {
+          id: 'mixed-run',
+          status: 'pending',
+          modifiedAt: 0,
+          currentTaskId: 'TASK-03',
+          skipBlocked: true,
+          blockingTaskId: 'TASK-02',
+        },
+      ],
+      pickResume: async (runs) => ({ ok: true, run: runs[0]! }),
+    })
+    expect(result).toEqual({
+      kind: 'dispatch',
+      argv: ['run', '--resume', 'mixed-run', '--continue-on-blocked', '--reuse-worktree'],
+    })
+  })
+
+  it('does not duplicate skip-blocked flags when the user already typed them', async () => {
+    const result = await resolveShellLine('/resume --continue-on-blocked', '.', {
+      theme,
+      listRuns: () => [
+        {
+          id: 'mixed-run',
+          status: 'pending',
+          modifiedAt: 0,
+          skipBlocked: true,
+        },
+      ],
+      pickResume: async (runs) => ({ ok: true, run: runs[0]! }),
+    })
+    expect(result).toEqual({
+      kind: 'dispatch',
+      argv: ['run', '--resume', 'mixed-run', '--continue-on-blocked', '--reuse-worktree'],
+    })
+  })
+
   it('keeps --reuse-worktree, --continue-on-blocked, --no-auto-merge attached to /resume', async () => {
     const result = await resolveShellLine(
       '/resume abc --reuse-worktree --continue-on-blocked',
